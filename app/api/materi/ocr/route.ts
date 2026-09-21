@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Materi from "@/models/Materi";
-import { createWorker } from "tesseract.js";
-import path from "path";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,23 +16,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Materi tidak ditemukan" }, { status: 404 });
     }
 
-    const fs = await import("fs");
-    const localTrainedData = path.join(process.cwd(), "ind.traineddata");
-    const useLocal = fs.existsSync(localTrainedData);
+    const apiKey = process.env.OCR_SPACE_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "OCR_SPACE_API_KEY belum diset di environment variables" },
+        { status: 500 }
+      );
+    }
 
-    const workerOptions: Record<string, unknown> = {
-      langPath: useLocal ? process.cwd() : "https://tessdata.projectnaptha.com/4.0.0",
-      cachePath: process.cwd(),
-    };
+    const ocrRes = await fetch("https://api.ocr.space/parse/image", {
+      method: "POST",
+      headers: {
+        apikey: apiKey,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        base64Image: materi.gambarBase64,
+        language: "eng",
+        isOverlayRequired: "false",
+        OCREngine: "2",
+        scale: "true",
+      }),
+    });
 
-    const worker = await createWorker("ind", 1, workerOptions);
-    const { data: { text } } = await worker.recognize(materi.gambarBase64);
-    await worker.terminate();
+    const ocrData = await ocrRes.json();
 
-    materi.teksHasilOCR = text;
+    if (ocrData.IsErroredOnProcessing) {
+      console.error("OCR.space error:", ocrData.ErrorMessage);
+      return NextResponse.json(
+        { error: ocrData.ErrorMessage?.[0] || "Gagal proses OCR" },
+        { status: 500 }
+      );
+    }
+
+    const teks = ocrData.ParsedResults?.[0]?.ParsedText || "";
+
+    materi.teksHasilOCR = teks;
     await materi.save();
 
-    return NextResponse.json({ success: true, teks: text });
+    return NextResponse.json({ success: true, teks });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Gagal proses OCR" }, { status: 500 });
