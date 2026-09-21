@@ -24,22 +24,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = `Kamu adalah asisten guru. Berdasarkan materi pelajaran berikut, buatkan 3 soal pilihan ganda (4 opsi jawaban, 1 jawaban benar) dalam Bahasa Indonesia.
+    interface SoalAIItem {
+      pertanyaan: string;
+      pilihan: string[];
+      jawabanBenar: number;
+    }
 
-Materi:
+    const konteksMapel = materi.mataPelajaran || "Tematik / Umum";
+    const konteksKelas = materi.kelas || "Sekolah Dasar (SD)";
+    const konteksHalaman = materi.halaman ? `(Halaman: ${materi.halaman})` : "";
+
+    const prompt = `Kamu adalah guru ${konteksKelas} yang ramah dan mendidik.
+Berdasarkan materi pelajaran dari buku sekolah berikut:
+- Mata Pelajaran: ${konteksMapel}
+- Tingkat Siswa: ${konteksKelas} ${konteksHalaman}
+- Judul Bab/Materi: ${materi.namaMateri}
+
+Teks Buku Pelajaran (Hasil OCR):
 """
 ${materi.teksHasilOCR}
 """
 
-Balas HANYA dengan JSON array (tanpa markdown, tanpa penjelasan tambahan), dengan format persis seperti ini:
+TUGAS:
+Buatkan 3 butir soal kuis pilihan ganda dalam Bahasa Indonesia yang sederhana, jelas, dan sesuai tingkat pemahaman siswa ${konteksKelas}.
+Setiap soal memiliki 4 pilihan jawaban dan 1 index jawaban benar (0, 1, 2, atau 3).
+
+Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa markdown):
 [
   {
     "pertanyaan": "...",
     "pilihan": ["...", "...", "...", "..."],
     "jawabanBenar": 0
   }
-]
-"jawabanBenar" adalah index (0-3) dari array "pilihan" yang merupakan jawaban benar.`;
+]`;
 
     const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -65,11 +82,11 @@ Balas HANYA dengan JSON array (tanpa markdown, tanpa penjelasan tambahan), denga
     // Bersihkan kalau AI membungkus jawaban dengan ```json ... ```
     rawContent = rawContent.replace(/```json|```/g, "").trim();
 
-    let soalDariAI;
+    let soalDariAI: SoalAIItem[];
     try {
       soalDariAI = JSON.parse(rawContent);
-    } catch (parseErr) {
-      console.error("Gagal parse JSON dari AI:", rawContent);
+    } catch (parseError) {
+      console.error("Gagal parse JSON dari AI:", rawContent, parseError);
       return NextResponse.json({ error: "Respon AI tidak valid" }, { status: 500 });
     }
 
@@ -78,10 +95,10 @@ Balas HANYA dengan JSON array (tanpa markdown, tanpa penjelasan tambahan), denga
     }
 
     const soalTersimpan = await Soal.insertMany(
-      soalDariAI.map((s: any) => ({
+      soalDariAI.map((s: SoalAIItem) => ({
         pertanyaan: s.pertanyaan,
         pilihan: s.pilihan,
-        jawabanBenar: s.jawabanBenar,
+        jawabanBenar: Number(s.jawabanBenar) || 0,
         materiId,
       }))
     );

@@ -11,6 +11,10 @@ export async function POST(req: NextRequest) {
     const namaMateri = formData.get("namaMateri") as string;
     const guruEmail = formData.get("guruEmail") as string;
 
+    const mataPelajaran = (formData.get("mataPelajaran") as string) || "Tematik / Umum";
+    const kelas = (formData.get("kelas") as string) || "SD (Umum)";
+    const halaman = (formData.get("halaman") as string) || "";
+
     if (!file || !namaMateri || !guruEmail) {
       return NextResponse.json(
         { error: "Data tidak lengkap" },
@@ -26,6 +30,9 @@ export async function POST(req: NextRequest) {
     const materiBaru = await Materi.create({
       guruEmail,
       namaMateri,
+      mataPelajaran,
+      kelas,
+      halaman,
       gambarBase64: base64,
     });
 

@@ -18,12 +18,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Materi tidak ditemukan" }, { status: 404 });
     }
 
-    // 'ind' = bahasa Indonesia, sesuaikan kalau materinya bahasa Inggris
-    const worker = await createWorker("ind", 1, {
-      workerPath: path.join(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js"),
-      langPath: "https://tessdata.projectnaptha.com/4.0.0",
-      corePath: path.join(process.cwd(), "node_modules/tesseract.js-core/tesseract-core.wasm.js"),
-    });
+    const fs = await import("fs");
+    const localTrainedData = path.join(process.cwd(), "ind.traineddata");
+    const useLocal = fs.existsSync(localTrainedData);
+
+    const workerOptions: Record<string, unknown> = {
+      langPath: useLocal ? process.cwd() : "https://tessdata.projectnaptha.com/4.0.0",
+      cachePath: process.cwd(),
+    };
+
+    const worker = await createWorker("ind", 1, workerOptions);
     const { data: { text } } = await worker.recognize(materi.gambarBase64);
     await worker.terminate();
 

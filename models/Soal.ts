@@ -1,4 +1,4 @@
-import mongoose, { Schema, models, model } from "mongoose";
+import { Schema, models, model } from "mongoose";
 
 const SoalSchema = new Schema({
   materiId: { type: Schema.Types.ObjectId, ref: "Materi", required: true },
