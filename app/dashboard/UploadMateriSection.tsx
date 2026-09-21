@@ -23,6 +23,41 @@ const KELAS_OPTIONS = [
   "Kelas 6 SD",
 ];
 
+// kompres & resize foto sebelum diupload, supaya OCR lebih cepat & tidak timeout di server
+async function compressImage(file: File, maxWidth = 1400, quality = 0.7): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
+
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error("Gagal kompres gambar"));
+          resolve(new File([blob], file.name, { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+
+    img.onerror = reject;
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function UploadMateriSection({ guruEmail }: { guruEmail: string }) {
   const [namaMateri, setNamaMateri] = useState("");
   const [mataPelajaran, setMataPelajaran] = useState(MAPEL_OPTIONS[0]);
@@ -32,20 +67,32 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [materiId, setMateriId] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
 
   const [ocrStatus, setOcrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [teksHasilOCR, setTeksHasilOCR] = useState("");
 
-  // dua input file tersembunyi: satu buka kamera langsung, satu buka galeri
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0] ?? null;
-    if (selectedFile) {
+    if (!selectedFile) return;
+
+    setCompressing(true);
+    try {
+      const compressed = await compressImage(selectedFile);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setFile(compressed);
+      setPreviewUrl(URL.createObjectURL(compressed));
+    } catch (err) {
+      console.error("Gagal kompres gambar:", err);
+      // fallback: pakai file asli kalau kompresi gagal
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setFile(selectedFile);
       setPreviewUrl(URL.createObjectURL(selectedFile));
+    } finally {
+      setCompressing(false);
     }
   };
 
@@ -189,7 +236,6 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
             Foto Materi Buku <span className="text-red-500">*</span>
           </label>
 
-          {/* input tersembunyi: kamera langsung */}
           <input
             ref={cameraInputRef}
             type="file"
@@ -198,7 +244,6 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
             onChange={handleFileChange}
             className="hidden"
           />
-          {/* input tersembunyi: pilih dari galeri/dokumen */}
           <input
             ref={galleryInputRef}
             type="file"
@@ -212,7 +257,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
-                disabled={status === "success"}
+                disabled={status === "success" || compressing}
                 className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
               >
                 📷 Ambil Foto
@@ -220,11 +265,14 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
               <button
                 type="button"
                 onClick={() => galleryInputRef.current?.click()}
-                disabled={status === "success"}
+                disabled={status === "success" || compressing}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
               >
                 🖼️ Pilih dari Galeri
               </button>
+              {compressing && (
+                <span className="text-xs text-gray-400 self-center">Memproses foto...</span>
+              )}
             </div>
           ) : (
             <div className="mt-2 flex items-start gap-3">
@@ -250,7 +298,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
         <div>
           <button
             onClick={handleUpload}
-            disabled={status === "loading" || !file || !namaMateri.trim()}
+            disabled={status === "loading" || !file || !namaMateri.trim() || compressing}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50"
           >
             {status === "loading" ? "Mengunggah materi..." : "📤 Unggah Foto Materi"}
