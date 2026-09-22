@@ -8,7 +8,7 @@ function JoinForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [kodeKuis, setKodeKuis] = useState(
+  const [kodeInput, setKodeInput] = useState(
     () => searchParams.get("kode")?.toUpperCase() || ""
   );
   const [namaSiswa, setNamaSiswa] = useState("");
@@ -19,105 +19,142 @@ function JoinForm() {
     e.preventDefault();
     setErrorMsg("");
 
-    const cleanKode = kodeKuis.trim().toUpperCase();
+    const cleanKode = kodeInput.trim().toUpperCase();
     const cleanNama = namaSiswa.trim();
 
-    if (!cleanKode) {
-      setErrorMsg("Masukkan kode kuis terlebih dahulu.");
+    if (!cleanNama) {
+      setErrorMsg("Ketik nama lengkap kamu terlebih dahulu ya!");
       return;
     }
 
-    if (!cleanNama) {
-      setErrorMsg("Masukkan nama lengkap kamu.");
+    if (!cleanKode) {
+      setErrorMsg("Ketik kode kelas atau kode kuis dari gurumu.");
       return;
     }
 
     setLoading(true);
 
     try {
-      // Verifikasi apakah kode sesi valid
-      const res = await fetch(`/api/sesi/${cleanKode}`);
-      const data = await res.json();
+      // 1. Coba login sebagai siswa kelas (Nama + Kode Kelas)
+      const resLogin = await fetch("/api/siswa/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nama: cleanNama, kodeKelas: cleanKode }),
+      });
+      const dataLogin = await resLogin.json();
 
-      if (data.status !== "ok") {
-        setErrorMsg(data.message || "Kode kuis tidak ditemukan. Tanyakan kode ke gurumu.");
-        setLoading(false);
+      if (dataLogin.status === "ok") {
+        // Berhasil login kelas! Simpan di localStorage & arahkan ke Dashboard Siswa
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edusnap_siswa_nama", dataLogin.siswa.nama);
+          localStorage.setItem("edusnap_siswa_id", dataLogin.siswa.id);
+          localStorage.setItem("edusnap_kode_kelas", dataLogin.kelas.kode_kelas);
+          localStorage.setItem("edusnap_nama_kelas", dataLogin.kelas.nama_kelas);
+        }
+
+        router.push(
+          `/siswa?kode=${encodeURIComponent(dataLogin.kelas.kode_kelas)}&nama=${encodeURIComponent(
+            dataLogin.siswa.nama
+          )}`
+        );
         return;
       }
 
-      // Simpan nama siswa ke localStorage agar tidak hilang saat reload
-      if (typeof window !== "undefined") {
-        localStorage.setItem(`kuis_nama_${cleanKode}`, cleanNama);
+      // 2. Jika bukan kode kelas, cek apakah kode tersebut adalah kode sesi kuis langsung
+      const resSesi = await fetch(`/api/sesi/${cleanKode}`);
+      const dataSesi = await resSesi.json();
+
+      if (dataSesi.status === "ok") {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`kuis_nama_${cleanKode}`, cleanNama);
+        }
+        router.push(`/kuis/${cleanKode}?nama=${encodeURIComponent(cleanNama)}`);
+        return;
       }
 
-      // Arahkan ke halaman kuis
-      router.push(`/kuis/${cleanKode}?nama=${encodeURIComponent(cleanNama)}`);
+      // Jika keduanya tidak cocok
+      setErrorMsg(
+        dataLogin.message || "Kode kelas atau kuis tidak ditemukan. Tanyakan kode ke gurumu ya!"
+      );
+      setLoading(false);
     } catch {
-      setErrorMsg("Gagal menghubungi server. Periksa koneksi internet.");
+      setErrorMsg("Gagal terhubung ke server. Periksa koneksi internet.");
       setLoading(false);
     }
   };
 
   return (
-    <div className="w-full max-w-md rounded-2xl border border-indigo-100 bg-white p-8 shadow-xl text-center space-y-6">
+    <div className="w-full max-w-md rounded-3xl border-2 border-amber-300 bg-gradient-to-b from-amber-50/60 via-white to-sky-50/40 p-6 sm:p-8 shadow-2xl shadow-amber-500/10 text-center space-y-6">
+      {/* Friendly Kid Mascot Icon */}
       <div className="space-y-2">
-        <span className="text-4xl">🎒</span>
-        <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+        <span className="text-5xl sm:text-6xl inline-block animate-bounce">🎒</span>
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
           Masuk Kuis Siswa
         </h1>
-        <p className="text-sm text-gray-500">
-          Masukkan kode kuis dari gurumu dan namamu untuk mulai belajar!
+        <p className="text-xs sm:text-sm text-slate-500 max-w-xs mx-auto">
+          Ketik namamu dan kode kelas dari gurumu untuk mulai belajar & kuis!
         </p>
       </div>
 
       {errorMsg && (
-        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600 border border-red-100 font-medium">
-          {errorMsg}
+        <div className="rounded-2xl bg-red-50 p-3.5 text-xs sm:text-sm text-red-700 border border-red-200 font-bold text-left flex items-start gap-2">
+          <span className="text-base shrink-0">⚠️</span>
+          <span>{errorMsg}</span>
         </div>
       )}
 
       <form onSubmit={handleJoin} className="space-y-4 text-left">
         <div className="space-y-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-            Kode Kuis <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            required
-            maxLength={10}
-            value={kodeKuis}
-            onChange={(e) => setKodeKuis(e.target.value.toUpperCase())}
-            placeholder="Contoh: SD4IPA"
-            className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-center text-xl font-extrabold tracking-widest text-indigo-700 uppercase focus:border-indigo-600 focus:outline-none focus:ring-0 transition"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-            Nama Lengkap Siswa <span className="text-red-500">*</span>
+          <label className="text-xs font-black uppercase tracking-wider text-slate-700">
+            Nama Lengkap Kamu <span className="text-amber-500">*</span>
           </label>
           <input
             type="text"
             required
             value={namaSiswa}
             onChange={(e) => setNamaSiswa(e.target.value)}
-            placeholder="Contoh: Budi Santoso"
-            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base text-gray-900 focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600 transition"
+            placeholder="Contoh: Andi Pratama"
+            className="w-full rounded-2xl border-2 border-slate-200 px-4 py-3.5 text-base font-bold text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 transition"
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-black uppercase tracking-wider text-slate-700">
+            Kode Kelas dari Guru <span className="text-amber-500">*</span>
+          </label>
+          <input
+            type="text"
+            required
+            maxLength={12}
+            value={kodeInput}
+            onChange={(e) => setKodeInput(e.target.value.toUpperCase())}
+            placeholder="Contoh: 4A-X7K9"
+            className="w-full rounded-2xl border-2 border-amber-300 bg-amber-50/40 px-4 py-3.5 text-center text-xl sm:text-2xl font-black font-mono tracking-widest text-amber-900 uppercase placeholder:text-amber-300 focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 transition"
+          />
+          <p className="text-[11px] text-slate-400 text-center font-medium">
+            (Semua teman di satu kelasmu menggunakan kode yang sama)
+          </p>
         </div>
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-xl bg-indigo-600 py-3.5 text-base font-bold text-white shadow-md hover:bg-indigo-700 active:scale-98 transition disabled:opacity-50"
+          className="w-full rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 active:scale-95 py-4 text-base font-black text-white shadow-lg shadow-amber-500/25 transition disabled:opacity-50"
         >
-          {loading ? "Memeriksa Kode..." : "Mulai Kerjakan Kuis 🚀"}
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-block animate-spin text-lg">⏳</span>
+              <span>Memeriksa Kelas...</span>
+            </span>
+          ) : (
+            "Ayo Mulai Belajar! 🚀"
+          )}
         </button>
       </form>
 
-      <div className="border-t border-gray-100 pt-4 text-xs text-gray-400">
+      <div className="border-t border-slate-100 pt-4 text-xs text-slate-400">
         Kamu seorang guru?{" "}
-        <Link href="/login" className="font-semibold text-indigo-600 hover:underline">
+        <Link href="/login" className="font-bold text-indigo-600 hover:underline">
           Login Guru di sini
         </Link>
       </div>
@@ -127,8 +164,8 @@ function JoinForm() {
 
 export default function JoinPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center p-4 bg-gradient-to-b from-indigo-50/60 via-white to-gray-50">
-      <Suspense fallback={<div className="text-sm text-gray-400">Memuat form join...</div>}>
+    <main className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-amber-50/50 via-white to-indigo-50/40">
+      <Suspense fallback={<div className="text-xs text-slate-400 font-bold">Memuat halaman kuis...</div>}>
         <JoinForm />
       </Suspense>
     </main>

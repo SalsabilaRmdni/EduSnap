@@ -121,7 +121,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
   const handleConfirm = () => {
     if (!capturedBlob) return;
-    const file = new File([capturedBlob], `buku_materi_${Date.now()}.jpg`, {
+    const file = new File([capturedBlob], "buku_materi_foto.jpg", {
       type: "image/jpeg",
     });
     onCapture(file);

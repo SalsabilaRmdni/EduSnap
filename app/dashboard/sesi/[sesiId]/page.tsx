@@ -38,6 +38,7 @@ export default function DetailSesiPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!sesiId) return;
@@ -68,25 +69,30 @@ export default function DetailSesiPage() {
     loadData();
   };
 
+  const handleCopyLink = () => {
+    if (!sesi) return;
+    const url = `${window.location.origin}/join?kode=${sesi.kode_unik}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-8 bg-gray-50">
-        <div className="text-center space-y-2">
-          <span className="inline-block animate-spin text-2xl">⏳</span>
-          <p className="text-gray-500 text-sm">Memuat rekap nilai sesi...</p>
-        </div>
+      <main className="min-h-screen flex items-center justify-center bg-slate-50">
+        <p className="text-slate-400 text-xs font-semibold animate-pulse">Memuat rekap nilai sesi...</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Navigasi atas */}
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Header */}
+      <header className="border-b border-slate-200/80 bg-white sticky top-0 z-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link
             href="/dashboard"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 transition"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition"
           >
             ← Kembali ke Dashboard
           </Link>
@@ -94,103 +100,118 @@ export default function DetailSesiPage() {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 transition"
           >
             🔄 {refreshing ? "Memperbarui..." : "Perbarui Data"}
           </button>
         </div>
+      </header>
 
+      {/* Main Container */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 md:p-8 space-y-6">
         {errorMsg && (
-          <div className="rounded-xl bg-red-50 p-4 text-sm text-red-600 border border-red-200">
-            {errorMsg}
+          <div className="rounded-2xl bg-red-50 p-4 text-xs font-semibold text-red-700 border border-red-200">
+            ⚠️ {errorMsg}
           </div>
         )}
 
         {/* Header Sesi Kuis */}
         {sesi && (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="rounded-3xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="rounded-md bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
                   {sesi.tingkat_kelas}
                 </span>
-                <span className="rounded-md bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                <span className="rounded-md bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
                   {sesi.mata_pelajaran}
                 </span>
-                <span className="rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
                   Status: {sesi.status}
                 </span>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900">{sesi.judul_kuis}</h1>
-              <p className="text-xs text-gray-400">
-                Total Soal: {sesi.totalSoal} butir pilihan ganda
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                {sesi.judul_kuis}
+              </h1>
+              <p className="text-xs text-slate-400">
+                Total: {sesi.totalSoal} butir pilihan ganda • Dibuat: {new Date(sesi.createdAt).toLocaleDateString("id-ID")}
               </p>
             </div>
 
             {/* Kotak Kode Kuis */}
-            <div className="flex flex-col items-center justify-center rounded-2xl bg-indigo-50 border-2 border-indigo-200 px-6 py-4 text-center shrink-0">
-              <span className="text-xs font-bold uppercase tracking-widest text-indigo-700">
+            <div className="rounded-2xl bg-indigo-50/80 border-2 border-indigo-200 p-5 text-center shrink-0 w-full sm:w-auto">
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-700 block">
                 KODE KUIS SISWA
               </span>
-              <span className="text-3xl font-black tracking-widest text-indigo-900 mt-0.5">
+              <span className="text-3xl font-black font-mono tracking-widest text-indigo-900 mt-1 block">
                 {sesi.kode_unik}
               </span>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    `${window.location.origin}/join?kode=${sesi.kode_unik}`
-                  );
-                  alert("Link kuis berhasil disalin! Bagikan link ini ke siswa.");
-                }}
-                className="mt-2 rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                onClick={handleCopyLink}
+                className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 px-4 py-2 text-xs font-bold text-white shadow-sm transition"
               >
-                📋 Salin Link Kuis
+                {copiedLink ? "✅ Link Tersalin!" : "📋 Salin Link Kuis"}
               </button>
             </div>
           </div>
         )}
 
-        {/* Statistik Ringkas */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-1">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Total Siswa Mengerjakan
+        {/* Statistik Ringkas Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm space-y-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+              Siswa Mengerjakan
             </span>
-            <p className="text-3xl font-extrabold text-indigo-600">{stats.totalPeserta} Anak</p>
+            <p className="text-3xl font-black text-indigo-700">{stats.totalPeserta} Anak</p>
+            <p className="text-[11px] text-slate-400">Jawaban tersimpan otomatis</p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-1">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+          <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm space-y-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
               Rata-Rata Nilai
             </span>
-            <p className="text-3xl font-extrabold text-emerald-600">
-              {stats.rataRataSkor} <span className="text-sm font-normal text-gray-400">/ 100</span>
+            <p className="text-3xl font-black text-emerald-600">
+              {stats.rataRataSkor} <span className="text-sm font-normal text-slate-400">/ 100</span>
             </p>
+            <p className="text-[11px] text-slate-400">Skor seluruh peserta</p>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm space-y-1 col-span-2 sm:col-span-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+              Nilai Tertinggi
+            </span>
+            <p className="text-3xl font-black text-amber-500">
+              {pesertaList.length > 0 ? Math.max(...pesertaList.map((p) => p.skor || 0)) : 0} 🌟
+            </p>
+            <p className="text-[11px] text-slate-400">Pencapaian terbaik siswa</p>
           </div>
         </div>
 
         {/* Tabel Rekap Nilai Siswa */}
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden space-y-3 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-gray-900">Rekap Nilai Siswa</h2>
-            <span className="text-xs text-gray-400">
-              Diurutkan dari yang terbaru mengerjakan
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Rekap Perolehan Nilai Siswa</h2>
+              <p className="text-xs text-slate-400">Diurutkan dari peserta terbaru</p>
+            </div>
+            <span className="text-xs font-semibold text-slate-500">
+              {pesertaList.length} Siswa Selesai
             </span>
           </div>
 
           {pesertaList.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left text-xs sm:text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 text-xs font-bold uppercase tracking-wider text-gray-600">
-                    <th className="py-3 px-4">No.</th>
-                    <th className="py-3 px-4">Nama Siswa</th>
-                    <th className="py-3 px-4 text-center">Jawaban Benar</th>
-                    <th className="py-3 px-4 text-center">Skor Akhir</th>
-                    <th className="py-3 px-4 text-right">Waktu Submit</th>
+                  <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[11px]">
+                    <th className="py-3 px-3">No.</th>
+                    <th className="py-3 px-3">Nama Siswa</th>
+                    <th className="py-3 px-3 text-center">Benar / Total</th>
+                    <th className="py-3 px-3 text-center">Skor Akhir</th>
+                    <th className="py-3 px-3 text-right">Waktu Pengerjaan</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-100">
                   {pesertaList.map((p, idx) => {
                     const isLulus = (p.skor || 0) >= 70;
                     const dateStr = new Date(p.createdAt).toLocaleTimeString("id-ID", {
@@ -201,24 +222,26 @@ export default function DetailSesiPage() {
                     });
 
                     return (
-                      <tr key={p._id} className="hover:bg-gray-50/80 transition">
-                        <td className="py-3 px-4 text-gray-500">{idx + 1}</td>
-                        <td className="py-3 px-4 font-bold text-gray-900">{p.nama_siswa}</td>
-                        <td className="py-3 px-4 text-center text-gray-700">
+                      <tr key={p._id} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3.5 px-3 text-slate-400 font-bold">{idx + 1}</td>
+                        <td className="py-3.5 px-3 font-bold text-slate-900">
+                          {p.nama_siswa}
+                        </td>
+                        <td className="py-3.5 px-3 text-center text-slate-700 font-medium">
                           {p.jumlah_benar} / {p.total_soal}
                         </td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-3.5 px-3 text-center">
                           <span
-                            className={`inline-block px-3 py-1 rounded-full text-xs font-extrabold ${
+                            className={`inline-block px-3 py-1 rounded-full text-xs font-black ${
                               isLulus
-                                ? "bg-green-100 text-green-800"
+                                ? "bg-emerald-100 text-emerald-800"
                                 : "bg-amber-100 text-amber-800"
                             }`}
                           >
                             {p.skor}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right text-xs text-gray-400 font-mono">
+                        <td className="py-3.5 px-3 text-right text-xs text-slate-400 font-mono">
                           {dateStr}
                         </td>
                       </tr>
@@ -228,18 +251,18 @@ export default function DetailSesiPage() {
               </table>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center space-y-2">
-              <span className="text-3xl">👥</span>
-              <p className="text-sm font-semibold text-gray-700">
-                Belum ada siswa yang mengirimkan jawaban.
+            <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center space-y-2">
+              <span className="text-4xl">👥</span>
+              <p className="text-sm font-bold text-slate-700">
+                Belum ada siswa yang mengerjakan kuis ini
               </p>
-              <p className="text-xs text-gray-400">
-                Bagikan kode kuis kepada siswa agar mereka dapat mulai mengerjakan. Nilai akan otomatis masuk ke sini!
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Bagikan kode kuis atau link ke siswa. Begitu siswa submit jawaban, skor mereka akan langsung muncul di sini.
               </p>
             </div>
           )}
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

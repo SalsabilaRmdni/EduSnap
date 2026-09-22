@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import Sesi from "@/models/Sesi";
 import Soal from "@/models/Soal";
 import Materi from "@/models/Materi";
+import Kelas from "@/models/Kelas";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 // Helper untuk generate kode unik 6 karakter (angka dan huruf besar)
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
     const session = token ? await verifySessionToken(token) : null;
 
-    const { materiId, judulKuis, customKode } = await req.json();
+    const { materiId, judulKuis, customKode, kelasId } = await req.json();
 
     if (!materiId) {
       return NextResponse.json(
@@ -37,6 +38,25 @@ export async function POST(req: NextRequest) {
         { status: "error", message: "Materi tidak ditemukan" },
         { status: 404 }
       );
+    }
+
+    // Validasi kelasId (opsional) - kalau diisi, pastikan kelas itu benar milik guru yang login
+    let kelasValid: string | undefined = undefined;
+    if (kelasId) {
+      const kelas = await Kelas.findById(kelasId);
+      if (!kelas) {
+        return NextResponse.json(
+          { status: "error", message: "Kelas tidak ditemukan" },
+          { status: 404 }
+        );
+      }
+      if (session?.guruId && String(kelas.guru_id) !== String(session.guruId)) {
+        return NextResponse.json(
+          { status: "error", message: "Kelas ini bukan milik Anda" },
+          { status: 403 }
+        );
+      }
+      kelasValid = kelas._id.toString();
     }
 
     const soalList = await Soal.find({ materiId }).sort({ createdAt: 1 });
@@ -82,6 +102,7 @@ export async function POST(req: NextRequest) {
       guru_id: session?.guruId,
       guru_email: session?.email || materi.guruEmail,
       materi_id: materi._id,
+      kelas_id: kelasValid,
       kode_unik: kode,
       mata_pelajaran: materi.mataPelajaran || "Tematik / Umum",
       tingkat_kelas: materi.kelas || "SD (Umum)",
@@ -99,6 +120,7 @@ export async function POST(req: NextRequest) {
         judul_kuis: sesiBaru.judul_kuis,
         mata_pelajaran: sesiBaru.mata_pelajaran,
         tingkat_kelas: sesiBaru.tingkat_kelas,
+        kelas_id: sesiBaru.kelas_id,
         total_soal: sesiBaru.soal.length,
       },
     });

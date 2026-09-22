@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Sesi from "@/models/Sesi";
+import Siswa from "@/models/Siswa";
 
 export async function GET(
   _req: NextRequest,
@@ -35,13 +36,24 @@ export async function GET(
       );
     }
 
+    // Jika sesi ini terhubung ke kelas, ambil daftar nama siswa di kelas tersebut
+    let daftarSiswaKelas: string[] = [];
+    if (sesi.kelas_id) {
+      const siswaList = await Siswa.find({ kelas_id: sesi.kelas_id })
+        .select("nama")
+        .sort({ nama: 1 });
+      daftarSiswaKelas = siswaList.map((s) => s.nama);
+    }
+
     // Ambil soal TANPA menyertakan kunci jawaban untuk siswa
-    const soalUntukSiswa = sesi.soal.map((s: { _id?: unknown; pertanyaan: string; pilihan: string[] }, index: number) => ({
-      index,
-      id: s._id ? String(s._id) : String(index),
-      pertanyaan: s.pertanyaan,
-      pilihan: s.pilihan,
-    }));
+    const soalUntukSiswa = sesi.soal.map(
+      (s: { _id?: unknown; pertanyaan: string; pilihan: string[] }, index: number) => ({
+        index,
+        id: s._id ? String(s._id) : String(index),
+        pertanyaan: s.pertanyaan,
+        pilihan: s.pilihan,
+      })
+    );
 
     return NextResponse.json({
       status: "ok",
@@ -51,8 +63,10 @@ export async function GET(
         judul_kuis: sesi.judul_kuis,
         mata_pelajaran: sesi.mata_pelajaran,
         tingkat_kelas: sesi.tingkat_kelas,
+        kelas_id: sesi.kelas_id,
         status: sesi.status,
         total_soal: sesi.soal.length,
+        daftar_siswa: daftarSiswaKelas,
         soal: soalUntukSiswa,
       },
     });
