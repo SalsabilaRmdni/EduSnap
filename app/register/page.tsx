@@ -33,10 +33,6 @@ export default function RegisterPage() {
         return;
       }
 
-      if (nama.trim()) {
-        localStorage.setItem("edusnap_guru_nama", nama.trim());
-      }
-
       router.push("/login?registered=1");
     } catch {
       setError("Gagal menghubungi server. Periksa koneksi internet.");
