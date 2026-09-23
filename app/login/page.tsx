@@ -1,11 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import EduSnapLogo from "@/components/EduSnapLogo";
 import TeacherIllustration from "@/components/TeacherIllustration";
 import DecorativeSkyHills from "@/components/DecorativeSkyHills";
+
+function formatNamaGuru(nama: string) {
+  if (!nama) return "";
+  return nama
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +22,34 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [guruNama, setGuruNama] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("edusnap_guru_nama") || "";
+    }
+    return "";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const qNama = urlParams.get("nama");
+      if (qNama) {
+        setGuruNama(qNama);
+        localStorage.setItem("edusnap_guru_nama", qNama);
+        return;
+      }
+    }
+
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.status === "ok" && data.guru?.nama) {
+          setGuruNama(data.guru.nama);
+          localStorage.setItem("edusnap_guru_nama", data.guru.nama);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,6 +67,11 @@ export default function LoginPage() {
       if (data.status !== "ok") {
         setError(data.message || "Email atau kata sandi tidak cocok.");
         return;
+      }
+
+      if (data.guru?.nama) {
+        localStorage.setItem("edusnap_guru_nama", data.guru.nama);
+        setGuruNama(data.guru.nama);
       }
 
       router.push("/dashboard");
@@ -67,7 +109,7 @@ export default function LoginPage() {
             {/* Header Text */}
             <div className="space-y-1">
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                Selamat Datang, Bu Guru!
+                Selamat Datang, Guru {guruNama ? formatNamaGuru(guruNama) : "EduSnap"}!
               </h1>
               <p className="text-xs sm:text-sm font-semibold text-slate-500">
                 Masuk untuk melanjutkan.

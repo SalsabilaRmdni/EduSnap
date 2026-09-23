@@ -13,6 +13,15 @@ interface GuruSession {
   email: string;
 }
 
+function formatNamaGuru(nama: string) {
+  if (!nama) return "";
+  return nama
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 interface KelasItem {
   _id: string;
   nama_kelas: string;
@@ -131,7 +140,7 @@ export default function DashboardPage() {
               👩‍🏫
             </div>
             <div className="truncate">
-              <p className="text-xs font-black text-slate-900 truncate">{guru.nama}</p>
+              <p className="text-xs font-black text-slate-900 truncate">Guru {formatNamaGuru(guru.nama)}</p>
               <p className="text-[10px] font-bold text-purple-700">Guru SD</p>
             </div>
           </div>
@@ -228,7 +237,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-              Selamat datang, Bu Guru! 👋
+              Selamat Datang, Guru {formatNamaGuru(guru.nama)}! 👋
             </h1>
             <p className="text-xs font-bold text-slate-400">
               Kelola kelas dan buat materi kuis buku SD dengan mudah.
