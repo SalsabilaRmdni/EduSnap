@@ -1,14 +1,22 @@
 "use client";
 
-import UploadMateriSection from "./UploadMateriSection";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import EduSnapLogo from "@/components/EduSnapLogo";
+import SchoolIllustration from "@/components/SchoolIllustration";
+import UploadMateriSection from "./UploadMateriSection";
 
 interface GuruSession {
   guruId: string;
   nama: string;
   email: string;
+}
+
+interface KelasItem {
+  _id: string;
+  nama_kelas: string;
+  kode_kelas: string;
 }
 
 interface SesiItem {
@@ -25,13 +33,10 @@ export default function DashboardPage() {
   const router = useRouter();
   const [guru, setGuru] = useState<GuruSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"home" | "upload" | "riwayat">("home");
+  const [activeMenu, setActiveMenu] = useState<"dashboard" | "materi" | "hasil">("dashboard");
+  const [kelasList, setKelasList] = useState<KelasItem[]>([]);
   const [sesiList, setSesiList] = useState<SesiItem[]>([]);
-  const [loadingSesi, setLoadingSesi] = useState(false);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [siswaTotal, setSiswaTotal] = useState<number>(25);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -42,55 +47,50 @@ export default function DashboardPage() {
           return;
         }
         setGuru(data.guru);
+
+        // Fetch Kelas Guru
+        fetch(`/api/kelas?guruId=${data.guru.guruId}`)
+          .then((r) => r.json())
+          .then((kData) => {
+            if (kData.success && Array.isArray(kData.kelas)) {
+              setKelasList(kData.kelas);
+              if (kData.kelas.length > 0) {
+                // Fetch student count from first class
+                fetch(`/api/kelas/${kData.kelas[0]._id}/siswa`)
+                  .then((sRes) => sRes.json())
+                  .then((sData) => {
+                    if (sData.success && Array.isArray(sData.siswa)) {
+                      setSiswaTotal(sData.siswa.length);
+                    }
+                  });
+              }
+            }
+          });
+
+        // Fetch Sesi Kuis
+        fetch("/api/sesi")
+          .then((r) => r.json())
+          .then((sData) => {
+            if (sData.status === "ok") {
+              setSesiList(sData.sesiList || []);
+            }
+          });
       })
       .catch(() => router.push("/login"))
       .finally(() => setLoading(false));
   }, [router]);
-
-  useEffect(() => {
-    if (activeTab === "riwayat" || activeTab === "home") {
-      setLoadingSesi(true);
-      fetch("/api/sesi")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.status === "ok") {
-            setSesiList(data.sesiList || []);
-          }
-        })
-        .finally(() => setLoadingSesi(false));
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
   }
 
-  const handleCopyLink = (kode: string) => {
-    const url = `${window.location.origin}/join?kode=${kode}`;
-    navigator.clipboard.writeText(url);
-    setCopiedCode(kode);
-    setTimeout(() => setCopiedCode(null), 2500);
-  };
-
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-50">
+      <main className="min-h-screen flex items-center justify-center bg-sky-50">
         <div className="text-center space-y-3">
-          <div className="h-12 w-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-2xl font-black mx-auto animate-pulse">
-            📚
-          </div>
-          <p className="text-sm font-semibold text-slate-500">Memuat Portal Guru EduSnap...</p>
+          <span className="text-5xl inline-block animate-bounce">📚</span>
+          <p className="text-sm font-black text-slate-700">Memuat Dashboard Guru...</p>
         </div>
       </main>
     );
@@ -98,433 +98,264 @@ export default function DashboardPage() {
 
   if (!guru) return null;
 
-  const inisial = guru.nama
-    .split(" ")
-    .map((k) => k[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const kelasUtama = kelasList[0] || {
+    nama_kelas: "Kelas 4A",
+    kode_kelas: "4A-X7K9",
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur">
-        <div className="px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Mobile Hamburger Button */}
-            <button
-              onClick={() => setMobileMenuOpen((v) => !v)}
-              className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition"
-              aria-label="Toggle menu"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-
-            <Link href="/dashboard" className="flex items-center gap-2.5">
-              <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xl font-black shadow-md shadow-indigo-200">
-                📚
-              </div>
-              <div>
-                <span className="text-lg font-black tracking-tight text-slate-900">
-                  Edu<span className="text-indigo-600">Snap</span>
-                </span>
-                <span className="hidden sm:inline-block ml-2 text-[10px] font-extrabold uppercase tracking-wider bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">
-                  Portal Guru
-                </span>
-              </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
+      {/* ======================================= */}
+      {/* SIDEBAR GURU (Mengikuti Referensi Screen 6) */}
+      {/* ======================================= */}
+      <aside className="w-full md:w-56 shrink-0 bg-white border-r border-sky-100 p-4 sm:p-5 flex flex-col justify-between space-y-6">
+        <div className="space-y-6">
+          {/* Logo / Brand */}
+          <div className="flex items-center justify-between md:justify-start gap-3">
+            <Link href="/dashboard">
+              <EduSnapLogo size="sm" />
             </Link>
-          </div>
 
-          {/* Profile & Dropdown */}
-          <div className="relative" ref={dropdownRef}>
+            {/* Logout on mobile */}
             <button
-              onClick={() => setDropdownOpen((v) => !v)}
-              className="flex items-center gap-2.5 rounded-xl p-1.5 hover:bg-slate-100 transition"
+              onClick={handleLogout}
+              className="md:hidden text-xs font-bold text-red-500 hover:underline"
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-xs font-bold text-white shadow-sm">
-                {inisial}
-              </span>
-              <div className="hidden sm:block text-left">
-                <span className="block text-xs font-bold text-slate-900">{guru.nama}</span>
-                <span className="block text-[10px] text-slate-400">Pendidik SD</span>
-              </div>
-              <svg
-                className={`h-4 w-4 text-slate-400 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              Keluar
             </button>
-
-            {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl z-40 space-y-1">
-                <div className="px-3 py-2 border-b border-slate-100">
-                  <p className="text-xs font-bold text-slate-900 truncate">{guru.nama}</p>
-                  <p className="text-[11px] text-slate-400 truncate">{guru.email}</p>
-                </div>
-                <Link
-                  href="/dashboard/kelas"
-                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-                >
-                  <span>👥</span> Kelola Kelas & Siswa
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold text-red-600 hover:bg-red-50 transition"
-                >
-                  <span>🚪</span> Keluar (Logout)
-                </button>
-              </div>
-            )}
           </div>
-        </div>
-      </header>
 
-      {/* Main Layout Container */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Desktop Sidebar */}
-        <aside className="hidden md:block w-64 shrink-0 border-r border-slate-200/80 bg-white p-4 space-y-6 min-h-[calc(100vh-64px)]">
-          <nav className="space-y-1.5">
+          {/* Teacher Avatar Pill */}
+          <div className="flex items-center gap-3 p-2 rounded-2xl bg-purple-50 border border-purple-100">
+            <div className="h-10 w-10 rounded-full bg-purple-600 text-white font-black flex items-center justify-center text-sm shadow-xs shrink-0">
+              👩‍🏫
+            </div>
+            <div className="truncate">
+              <p className="text-xs font-black text-slate-900 truncate">{guru.nama}</p>
+              <p className="text-[10px] font-bold text-purple-700">Guru SD</p>
+            </div>
+          </div>
+
+          {/* Navigation Menu */}
+          <nav className="space-y-1.5 flex flex-row md:flex-col overflow-x-auto md:overflow-visible pb-2 md:pb-0 gap-1.5 md:gap-0">
+            {/* Dashboard */}
             <button
-              onClick={() => setActiveTab("home")}
-              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
-                activeTab === "home"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+              onClick={() => setActiveMenu("dashboard")}
+              className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-black transition shrink-0 ${
+                activeMenu === "dashboard"
+                  ? "bg-purple-100 text-purple-800 shadow-xs"
                   : "text-slate-600 hover:bg-slate-100"
               }`}
             >
-              <span className="text-base">🏠</span>
-              <span>Dashboard Utama</span>
+              <span>🏠</span>
+              <span>Dashboard</span>
             </button>
 
+            {/* Kelas */}
             <Link
               href="/dashboard/kelas"
-              className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
+              className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition shrink-0"
             >
-              <span className="text-base">👥</span>
-              <span>Kelola Kelas & Siswa</span>
+              <span>🏫</span>
+              <span>Kelas</span>
             </Link>
 
+            {/* Siswa */}
+            <Link
+              href="/dashboard/kelas"
+              className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition shrink-0"
+            >
+              <span>👥</span>
+              <span>Siswa</span>
+            </Link>
+
+            {/* Materi */}
             <button
-              onClick={() => setActiveTab("upload")}
-              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
-                activeTab === "upload"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+              onClick={() => setActiveMenu("materi")}
+              className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold transition shrink-0 ${
+                activeMenu === "materi"
+                  ? "bg-purple-100 text-purple-800 font-black shadow-xs"
                   : "text-slate-600 hover:bg-slate-100"
               }`}
             >
-              <span className="text-base">📷</span>
-              <span>Foto & Upload Materi</span>
+              <span>📖</span>
+              <span>Materi</span>
             </button>
 
+            {/* Soal */}
             <button
-              onClick={() => setActiveTab("riwayat")}
-              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold transition ${
-                activeTab === "riwayat"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+              onClick={() => setActiveMenu("materi")}
+              className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition shrink-0"
+            >
+              <span>📝</span>
+              <span>Soal</span>
+            </button>
+
+            {/* Hasil */}
+            <button
+              onClick={() => setActiveMenu("hasil")}
+              className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold transition shrink-0 ${
+                activeMenu === "hasil"
+                  ? "bg-purple-100 text-purple-800 font-black shadow-xs"
                   : "text-slate-600 hover:bg-slate-100"
               }`}
             >
-              <span className="text-base">📊</span>
-              <span>Riwayat Kuis & Rekap</span>
+              <span>📊</span>
+              <span>Hasil</span>
             </button>
           </nav>
+        </div>
 
-          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-4 space-y-2">
-            <span className="text-xs font-bold text-indigo-900 block">💡 Tips Penggunaan</span>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Buka menu <strong>Kelola Kelas</strong> untuk melihat <strong>Kode Akses Kelas</strong> yang dapat dibagikan kepada siswa Anda.
+        {/* Desktop Logout Button */}
+        <div className="hidden md:block pt-4 border-t border-slate-100">
+          <button
+            onClick={handleLogout}
+            className="w-full rounded-2xl border border-red-200 bg-red-50 hover:bg-red-100 py-2.5 px-3 text-xs font-black text-red-600 transition"
+          >
+            Keluar (Logout)
+          </button>
+        </div>
+      </aside>
+
+      {/* ======================================= */}
+      {/* MAIN CONTENT AREA */}
+      {/* ======================================= */}
+      <main className="flex-1 p-4 sm:p-6 md:p-8 space-y-6 max-w-4xl relative overflow-hidden">
+        {/* Welcome Greeting (Avatar circle + text) */}
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-purple-100 border-2 border-purple-300 flex items-center justify-center text-2xl shadow-xs">
+            👩‍🏫
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+              Selamat datang, Bu Guru! 👋
+            </h1>
+            <p className="text-xs font-bold text-slate-400">
+              Kelola kelas dan buat materi kuis buku SD dengan mudah.
             </p>
           </div>
-        </aside>
+        </div>
 
-        {/* Mobile Drawer (Responsive Menu) */}
-        {mobileMenuOpen && (
-          <div className="fixed inset-0 z-40 md:hidden flex">
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-            <div className="relative w-4/5 max-w-xs bg-white h-full p-5 space-y-6 shadow-2xl flex flex-col justify-between">
-              <div className="space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                  <span className="font-extrabold text-base text-slate-900">Menu Guru</span>
-                  <button onClick={() => setMobileMenuOpen(false)} className="text-slate-400 p-1">✕</button>
+        {activeMenu === "dashboard" && (
+          <div className="space-y-6">
+            {/* Section: Kelas Saya */}
+            <div className="space-y-3">
+              <h2 className="text-base font-black text-slate-900">
+                Kelas Saya
+              </h2>
+
+              {/* Card Kelas Saya (Mengikuti Gambar Referensi) */}
+              <Link
+                href="/dashboard/kelas"
+                className="rounded-3xl border-2 border-sky-100 bg-white p-5 sm:p-6 shadow-sm hover:shadow-md hover:border-sky-300 transition-all flex items-center justify-between gap-4 block"
+              >
+                <div className="flex items-center gap-4">
+                  {/* School Icon Graphic */}
+                  <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
+                    🏫
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-slate-900">
+                      {kelasUtama.nama_kelas}
+                    </h3>
+                    <p className="text-xs font-bold text-slate-400">
+                      {siswaTotal} Siswa
+                    </p>
+                    <p className="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md inline-block">
+                      Kode: {kelasUtama.kode_kelas}
+                    </p>
+                  </div>
                 </div>
-                <nav className="space-y-2">
-                  <button
-                    onClick={() => { setActiveTab("home"); setMobileMenuOpen(false); }}
-                    className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-bold ${
-                      activeTab === "home" ? "bg-indigo-600 text-white" : "text-slate-700 bg-slate-50"
-                    }`}
-                  >
-                    <span>🏠</span> Dashboard Utama
-                  </button>
-                  <Link
-                    href="/dashboard/kelas"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 bg-slate-50"
-                  >
-                    <span>👥</span> Kelola Kelas & Siswa
-                  </Link>
-                  <button
-                    onClick={() => { setActiveTab("upload"); setMobileMenuOpen(false); }}
-                    className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-bold ${
-                      activeTab === "upload" ? "bg-indigo-600 text-white" : "text-slate-700 bg-slate-50"
-                    }`}
-                  >
-                    <span>📷</span> Foto & Upload Materi
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab("riwayat"); setMobileMenuOpen(false); }}
-                    className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-xs font-bold ${
-                      activeTab === "riwayat" ? "bg-indigo-600 text-white" : "text-slate-700 bg-slate-50"
-                    }`}
-                  >
-                    <span>📊</span> Riwayat Kuis & Rekap
-                  </button>
-                </nav>
+
+                <div className="text-slate-400 font-black text-xl hover:text-slate-600">
+                  ›
+                </div>
+              </Link>
+
+              {/* Big Yellow Button: + Tambah Materi */}
+              <button
+                onClick={() => setActiveMenu("materi")}
+                className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-4 px-6 text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition"
+              >
+                <span>+</span>
+                <span>Tambah Materi</span>
+              </button>
+            </div>
+
+            {/* Bottom Graphic: Books & Kid */}
+            <div className="pt-6 flex items-end justify-between border-t border-slate-100">
+              {/* Stack of books illustration */}
+              <div className="flex items-center gap-3">
+                <div className="text-4xl">📚</div>
+                <div className="text-xs font-bold text-slate-500">
+                  <p className="text-slate-800 font-black">Materi Buku Siap Digenerate</p>
+                  <p>Ambil foto halaman buku dari kamera HP Anda.</p>
+                </div>
               </div>
 
-              <button
-                onClick={handleLogout}
-                className="w-full rounded-xl bg-red-50 text-red-600 font-bold text-xs py-3 text-center"
-              >
-                🚪 Keluar dari Akun
-              </button>
+              {/* Cute School Kid Illustration */}
+              <div className="shrink-0 -mb-2">
+                <span className="text-6xl inline-block">👧</span>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Content Area */}
-        <main className="flex-1 p-4 sm:p-6 md:p-8 space-y-6">
-          {activeTab === "home" && (
-            <div className="space-y-6">
-              {/* Welcome Banner */}
-              <div className="rounded-3xl border border-indigo-100 bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 p-6 sm:p-8 text-white shadow-lg shadow-indigo-600/10 flex flex-wrap items-center justify-between gap-6">
-                <div className="space-y-2 max-w-xl">
-                  <span className="inline-flex items-center gap-1.5 bg-white/20 text-white font-bold px-3 py-1 rounded-full text-xs">
-                    <span>🌟</span> Portal Edukasi Cerdas
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-                    Selamat Datang, {guru.nama}! 👋
-                  </h1>
-                  <p className="text-xs sm:text-sm text-indigo-100 leading-relaxed">
-                    Ubah foto buku materi pelajaran SD menjadi kuis interaktif secara otomatis. Siswa dapat mengerjakan kuis hanya menggunakan nama dan kode kelas.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setActiveTab("upload")}
-                    className="rounded-xl bg-white text-indigo-700 font-bold px-5 py-3 text-xs shadow-sm hover:bg-indigo-50 active:scale-95 transition"
-                  >
-                    📷 Foto Materi Sekarang
-                  </button>
-                  <Link
-                    href="/dashboard/kelas"
-                    className="rounded-xl bg-indigo-500/50 hover:bg-indigo-500/70 border border-white/20 text-white font-bold px-5 py-3 text-xs transition"
-                  >
-                    👥 Kelola Kelas
-                  </Link>
-                </div>
-              </div>
+        {/* Tab Upload/Foto Materi (Screen 8) */}
+        {activeMenu === "materi" && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveMenu("dashboard")}
+                className="h-10 w-10 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 flex items-center justify-center text-slate-700 font-black shadow-sm transition active:scale-95"
+              >
+                ←
+              </button>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900">
+                Tambah Materi
+              </h1>
+            </div>
+            <UploadMateriSection guruEmail={guru.email} />
+          </div>
+        )}
 
-              {/* Action Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4">
-                  <div className="space-y-2">
-                    <div className="h-12 w-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl font-black">
-                      📷
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900">Upload & Foto Materi Buku</h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      Ambil foto buku materi via kamera HP atau upload file. OCR mengekstrak teks otomatis dan AI menyusun butir soal kuis.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab("upload")}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm transition"
-                  >
-                    <span>Mulai Unggah Materi</span>
-                    <span>→</span>
-                  </button>
-                </div>
+        {/* Tab Riwayat / Hasil */}
+        {activeMenu === "hasil" && (
+          <div className="space-y-4">
+            <button
+              onClick={() => setActiveMenu("dashboard")}
+              className="text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1.5"
+            >
+              ← Kembali ke Dashboard
+            </button>
 
-                <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4">
-                  <div className="space-y-2">
-                    <div className="h-12 w-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl font-black">
-                      👥
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900">Kelola Kelas & Bagikan Kode</h3>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      Daftarkan nama siswa dan dapatkan <strong>Kode Akses Kelas</strong> tetap (misal: 4A-X7K9) untuk dibagikan ke siswa Anda.
-                    </p>
-                  </div>
-                  <Link
-                    href="/dashboard/kelas"
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm transition"
-                  >
-                    <span>Buka Kelola Kelas & Kode</span>
-                    <span>→</span>
-                  </Link>
-                </div>
-              </div>
-
-              {/* Sesi Kuis Terbaru Section */}
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Sesi Kuis Aktif Terbaru</h3>
-                    <p className="text-xs text-slate-400">Daftar kuis yang siap dikerjakan oleh siswa</p>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab("riwayat")}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    Lihat Semua ({sesiList.length}) →
-                  </button>
-                </div>
-
-                {loadingSesi ? (
-                  <div className="p-8 text-center text-xs text-slate-400 animate-pulse">
-                    Memuat daftar kuis...
-                  </div>
-                ) : sesiList.length === 0 ? (
-                  <div className="text-center py-10 space-y-2 border border-dashed border-slate-200 rounded-2xl">
-                    <span className="text-3xl">📝</span>
-                    <p className="text-sm font-bold text-slate-700">Belum ada sesi kuis yang dibuat</p>
-                    <p className="text-xs text-slate-400">Foto materi buku dan buat butir soal kuis pertamamu.</p>
-                  </div>
+            <div className="rounded-3xl border-2 border-sky-100 bg-white p-6 shadow-sm space-y-4">
+              <h2 className="text-lg font-black text-slate-900">Hasil & Rekap Nilai Siswa</h2>
+              <div className="divide-y divide-slate-100">
+                {sesiList.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4">Belum ada sesi kuis yang dibuat.</p>
                 ) : (
-                  <div className="divide-y divide-slate-100">
-                    {sesiList.slice(0, 3).map((sesi) => (
-                      <div key={sesi._id} className="py-3.5 flex flex-wrap items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-slate-900">{sesi.judul_kuis}</span>
-                            <span className="bg-indigo-50 text-indigo-700 font-extrabold text-[10px] px-2 py-0.5 rounded">
-                              {sesi.mata_pelajaran}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-400">
-                            Kode Kuis: <strong className="font-mono text-slate-700 font-bold">{sesi.kode_unik}</strong> • {sesi.soal.length} Soal
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleCopyLink(sesi.kode_unik)}
-                            className="rounded-xl border border-slate-300 hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition"
-                          >
-                            {copiedCode === sesi.kode_unik ? "✅ Tersalin!" : "📋 Salin Link"}
-                          </button>
-                          <Link
-                            href={`/dashboard/sesi/${sesi.kode_unik}`}
-                            className="rounded-xl bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-bold text-white transition"
-                          >
-                            📊 Rekap Nilai
-                          </Link>
-                        </div>
+                  sesiList.map((s) => (
+                    <div key={s._id} className="py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-sm text-slate-900">{s.judul_kuis}</p>
+                        <p className="text-xs text-slate-400">Kode: {s.kode_unik}</p>
                       </div>
-                    ))}
-                  </div>
+                      <Link
+                        href={`/dashboard/sesi/${s.kode_unik}`}
+                        className="rounded-xl bg-purple-600 text-white font-bold text-xs px-3.5 py-2 hover:bg-purple-700 transition"
+                      >
+                        Lihat Nilai →
+                      </Link>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
-          )}
-
-          {activeTab === "upload" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setActiveTab("home")}
-                  className="text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1"
-                >
-                  ← Kembali ke Dashboard Utama
-                </button>
-                <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md">
-                  Langkah 1: Unggah Materi
-                </span>
-              </div>
-              <UploadMateriSection guruEmail={guru.email} />
-            </div>
-          )}
-
-          {activeTab === "riwayat" && (
-            <div className="space-y-6 max-w-4xl">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900">Riwayat Sesi Kuis</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Daftar semua kuis yang pernah Anda buat untuk siswa</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab("upload")}
-                  className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm"
-                >
-                  + Buat Kuis Baru
-                </button>
-              </div>
-
-              {loadingSesi ? (
-                <div className="p-12 text-center text-xs text-slate-400">Memuat riwayat kuis...</div>
-              ) : sesiList.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center space-y-3">
-                  <span className="text-4xl">📝</span>
-                  <p className="font-bold text-slate-800">Belum ada riwayat kuis</p>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                    Mulai dengan mengunggah atau memotret halaman buku materi Anda untuk membuat soal pertama.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab("upload")}
-                    className="rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white"
-                  >
-                    Foto Materi Baru →
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {sesiList.map((s) => (
-                    <div
-                      key={s._id}
-                      className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm hover:border-indigo-300 transition flex flex-wrap items-center justify-between gap-4"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-sm text-slate-900">{s.judul_kuis}</span>
-                          <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
-                            {s.mata_pelajaran}
-                          </span>
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                            {s.tingkat_kelas}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400">
-                          Kode Akses: <strong className="font-mono text-indigo-600 font-extrabold">{s.kode_unik}</strong> • {s.soal.length} Soal • Dibuat: {new Date(s.createdAt).toLocaleDateString("id-ID")}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleCopyLink(s.kode_unik)}
-                          className="rounded-xl border border-slate-300 hover:bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 transition"
-                        >
-                          {copiedCode === s.kode_unik ? "✅ Tersalin!" : "📋 Salin Link"}
-                        </button>
-                        <Link
-                          href={`/dashboard/sesi/${s.kode_unik}`}
-                          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition"
-                        >
-                          📊 Rekap Nilai Siswa →
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </main>
-      </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
