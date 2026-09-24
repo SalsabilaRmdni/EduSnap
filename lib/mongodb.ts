@@ -1,14 +1,5 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI as string;
-
-if (!MONGODB_URI) {
-  throw new Error(
-    "MONGODB_URI belum diset. Tambahkan di file .env.local, contoh:\n" +
-    "MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<db_name>"
-  );
-}
-
 /**
  * Next.js (dev mode) me-reload module setiap ada perubahan file,
  * jadi koneksi mongoose di-cache di global object supaya tidak
@@ -29,6 +20,16 @@ global._mongooseCache = cached;
 export async function connectDB() {
   if (cached.conn) {
     return cached.conn;
+  }
+
+  // Lazy check: dilakukan saat runtime, bukan saat module load,
+  // supaya next build tidak gagal karena env var belum tersedia.
+  const MONGODB_URI = process.env.MONGODB_URI;
+  if (!MONGODB_URI) {
+    throw new Error(
+      "MONGODB_URI belum diset. Tambahkan di file .env.local, contoh:\n" +
+        "MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<db_name>"
+    );
   }
 
   if (!cached.promise) {
