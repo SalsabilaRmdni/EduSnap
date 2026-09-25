@@ -6,9 +6,10 @@ interface CameraModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCapture: (file: File) => void;
+  photoCount?: number; // jumlah foto yang sudah diambil di sesi ini (untuk badge)
 }
 
-export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalProps) {
+export default function CameraModal({ isOpen, onClose, onCapture, photoCount = 0 }: CameraModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -36,7 +37,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         return;
       }
 
-      // Cek jumlah kamera
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter((d) => d.kind === "videoinput");
@@ -78,7 +78,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     return () => {
       stopTracks();
     };
-  }, [isOpen, facingMode, startCamera, stopTracks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, facingMode]);
 
   const handleSwitchCamera = () => {
     const nextMode = facingMode === "environment" ? "user" : "environment";
@@ -119,9 +120,24 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     setCapturedBlob(null);
   };
 
-  const handleConfirm = () => {
+  // Simpan foto halaman ini, lalu balik ke live camera untuk jepret halaman berikutnya
+  const handleConfirmAndContinue = () => {
     if (!capturedBlob) return;
-    const file = new File([capturedBlob], "buku_materi_foto.jpg", {
+    const file = new File([capturedBlob], `buku_materi_halaman_${photoCount + 1}.jpg`, {
+      type: "image/jpeg",
+    });
+    onCapture(file);
+
+    if (capturedUrl) URL.revokeObjectURL(capturedUrl);
+    setCapturedUrl(null);
+    setCapturedBlob(null);
+    // Kamera (stream) tetap menyala, video langsung lanjut live lagi
+  };
+
+  // Simpan foto halaman ini DAN tutup modal (guru sudah selesai foto semua halaman)
+  const handleConfirmAndFinish = () => {
+    if (!capturedBlob) return;
+    const file = new File([capturedBlob], `buku_materi_halaman_${photoCount + 1}.jpg`, {
       type: "image/jpeg",
     });
     onCapture(file);
@@ -149,12 +165,19 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
             <span className="text-xl">📸</span>
             <h3 className="font-bold text-sm sm:text-base">Kamera Materi Buku SD</h3>
           </div>
-          <button
-            onClick={handleClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition text-sm"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {photoCount > 0 && (
+              <span className="text-[11px] font-black bg-indigo-600 px-2.5 py-1 rounded-full">
+                {photoCount} halaman tersimpan
+              </span>
+            )}
+            <button
+              onClick={handleClose}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition text-sm"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Viewfinder / Area Kamera */}
@@ -171,7 +194,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               </button>
             </div>
           ) : capturedUrl ? (
-            /* Tampilan Preview Foto yang sudah dijepret */
             <div className="relative w-full h-full flex items-center justify-center bg-black">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -180,11 +202,10 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 className="max-h-[60vh] w-auto max-w-full object-contain"
               />
               <div className="absolute top-3 left-3 bg-emerald-600/90 text-white text-xs font-bold px-3 py-1 rounded-full backdrop-blur-sm">
-                ✅ Foto Siap Digunakan
+                ✅ Halaman {photoCount + 1} Siap Digunakan
               </div>
             </div>
           ) : (
-            /* Tampilan Live Video Stream dari Kamera */
             <div className="relative w-full h-full flex items-center justify-center">
               <video
                 ref={videoRef}
@@ -194,7 +215,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 className="max-h-[60vh] w-full object-cover"
               />
 
-              {/* Bingkai Panduan Dokumen Buku */}
               <div className="absolute inset-8 sm:inset-12 border-2 border-dashed border-white/60 rounded-xl pointer-events-none flex flex-col items-center justify-between p-3">
                 <span className="bg-black/50 text-white text-[11px] font-medium px-2.5 py-1 rounded-md backdrop-blur-sm">
                   Arahkan kamera ke halaman buku materi
@@ -210,24 +230,32 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         </div>
 
         {/* Footer / Tombol Kontrol */}
-        <div className="p-4 bg-gray-900 border-t border-gray-800 flex items-center justify-between gap-3">
+        <div className="p-4 bg-gray-900 border-t border-gray-800 flex flex-col gap-2.5">
           {capturedUrl ? (
             <>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleRetake}
+                  className="flex-1 rounded-xl border border-gray-700 bg-gray-800 py-3 text-sm font-semibold text-white hover:bg-gray-700 active:scale-95 transition"
+                >
+                  🔄 Ambil Ulang
+                </button>
+                <button
+                  onClick={handleConfirmAndContinue}
+                  className="flex-1 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg hover:bg-indigo-700 active:scale-95 transition"
+                >
+                  ➕ Halaman Ini OK, Lanjut Foto
+                </button>
+              </div>
               <button
-                onClick={handleRetake}
-                className="flex-1 rounded-xl border border-gray-700 bg-gray-800 py-3 text-sm font-semibold text-white hover:bg-gray-700 active:scale-95 transition"
+                onClick={handleConfirmAndFinish}
+                className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-lg hover:bg-emerald-700 active:scale-95 transition"
               >
-                🔄 Ambil Ulang
-              </button>
-              <button
-                onClick={handleConfirm}
-                className="flex-1 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg hover:bg-indigo-700 active:scale-95 transition"
-              >
-                ✅ Gunakan Foto Ini
+                ✅ Selesai, Ini Halaman Terakhir
               </button>
             </>
           ) : (
-            <>
+            <div className="flex items-center justify-between gap-3">
               <div className="w-10">
                 {hasMultipleCameras && (
                   <button
@@ -241,7 +269,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 )}
               </div>
 
-              {/* Tombol Shutter Besar */}
               <button
                 type="button"
                 onClick={handleSnap}
@@ -255,15 +282,25 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               </button>
 
               <div className="w-10 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="text-xs text-gray-400 hover:text-white"
-                >
-                  Batal
-                </button>
+                {photoCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 font-bold whitespace-nowrap"
+                  >
+                    Selesai
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="text-xs text-gray-400 hover:text-white"
+                  >
+                    Batal
+                  </button>
+                )}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

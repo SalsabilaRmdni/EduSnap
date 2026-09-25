@@ -3,14 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
-// Daftar preset nama kelas — hanya untuk UI pilihan, TIDAK otomatis dibuat ke DB
-const PILIHAN_KELAS_PRESET = [
-  "Kelas 1A", "Kelas 1B",
-  "Kelas 2A", "Kelas 2B",
-  "Kelas 3A", "Kelas 3B",
-  "Kelas 4A", "Kelas 4B",
-  "Kelas 5A", "Kelas 5B",
-  "Kelas 6A", "Kelas 6B",
+// Daftar tingkat kelas SD untuk dropdown pemilihan
+const TINGKAT_KELAS_OPTIONS = [
+  "Kelas 1 SD",
+  "Kelas 2 SD",
+  "Kelas 3 SD",
+  "Kelas 4 SD",
+  "Kelas 5 SD",
+  "Kelas 6 SD",
 ];
 
 interface Kelas {
@@ -44,6 +44,10 @@ export default function KelolaKelasPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [namaKelasBaru, setNamaKelasBaru] = useState("");
   const [loadingCreate, setLoadingCreate] = useState(false);
+
+  // State dropdown tingkat kelas SD
+  const [tingkatKelas, setTingkatKelas] = useState(TINGKAT_KELAS_OPTIONS[3]);
+  const [showTingkatDropdown, setShowTingkatDropdown] = useState(false);
 
   // ──────────────────────────────────────────────
   // Helper: ambil siswa untuk kelas tertentu (READ-ONLY)
@@ -109,6 +113,16 @@ export default function KelolaKelasPage() {
     setKelasAktif(kelas);
     setShowCreateForm(false);
     loadSiswa(kelas._id);
+  };
+
+  // ──────────────────────────────────────────────
+  // Pilih tingkat kelas dari dropdown, dan sarankan nama kelas otomatis
+  // ──────────────────────────────────────────────
+  const pilihTingkatKelas = (tingkat: string) => {
+    setTingkatKelas(tingkat);
+    setShowTingkatDropdown(false);
+    // Sarankan nama kelas berdasar tingkat, guru masih bisa mengedit (mis. tambah "A"/"B")
+    setNamaKelasBaru(tingkat);
   };
 
   // ──────────────────────────────────────────────
@@ -275,32 +289,57 @@ export default function KelolaKelasPage() {
         ══════════════════════════════════════════ */}
         {showCreateForm && (
           <div className="rounded-3xl border-2 border-sky-100 bg-white p-5 shadow-sm space-y-4">
-            <p className="text-xs font-bold text-slate-500">Pilih dari daftar:</p>
 
-            {/* Tombol preset nama kelas */}
-            <div className="flex flex-wrap gap-2">
-              {PILIHAN_KELAS_PRESET.map((nama) => (
-                <button
-                  key={nama}
-                  type="button"
-                  onClick={() => setNamaKelasBaru(nama)}
-                  className={`rounded-2xl px-3 py-1.5 text-xs font-bold transition ${
-                    namaKelasBaru === nama
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "bg-sky-50 border border-sky-200 text-slate-600 hover:bg-sky-100"
+            {/* Dropdown Tingkat Kelas SD */}
+            <div className="space-y-1.5 relative">
+              <label className="text-xs font-bold text-slate-500">
+                Tingkat Kelas SD <span className="text-pink-500">*</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setShowTingkatDropdown((prev) => !prev)}
+                className={`w-full flex items-center justify-between rounded-2xl border-2 p-3.5 text-sm font-bold text-slate-900 transition ${
+                  showTingkatDropdown
+                    ? "border-purple-400 ring-4 ring-purple-100"
+                    : "border-sky-100"
+                }`}
+              >
+                <span>{tingkatKelas}</span>
+                <span
+                  className={`text-slate-400 transition-transform ${
+                    showTingkatDropdown ? "rotate-180" : ""
                   }`}
                 >
-                  {nama}
-                </button>
-              ))}
+                  ▾
+                </span>
+              </button>
+
+              {showTingkatDropdown && (
+                <div className="absolute z-20 mt-1 w-full rounded-2xl border-2 border-sky-100 bg-white shadow-lg overflow-hidden">
+                  {TINGKAT_KELAS_OPTIONS.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => pilihTingkatKelas(opt)}
+                      className={`w-full text-left px-4 py-2.5 text-sm font-bold transition ${
+                        tingkatKelas === opt
+                          ? "bg-purple-600 text-white"
+                          : "text-slate-700 hover:bg-purple-50"
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Input nama kelas bebas */}
+            {/* Input nama kelas (otomatis terisi dari tingkat, bisa diedit) */}
             <div className="space-y-1.5">
-              <p className="text-xs font-bold text-slate-500">Atau ketik nama kelas:</p>
+              <p className="text-xs font-bold text-slate-500">Nama Kelas:</p>
               <input
                 type="text"
-                autoFocus
                 value={namaKelasBaru}
                 onChange={(e) => setNamaKelasBaru(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && buatKelas()}
@@ -313,7 +352,12 @@ export default function KelolaKelasPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { setShowCreateForm(false); setNamaKelasBaru(""); setErrorMsg(null); }}
+                onClick={() => {
+                  setShowCreateForm(false);
+                  setNamaKelasBaru("");
+                  setErrorMsg(null);
+                  setShowTingkatDropdown(false);
+                }}
                 className="flex-1 rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
               >
                 Batal
@@ -374,7 +418,10 @@ export default function KelolaKelasPage() {
             {/* Tombol tambah kelas lain */}
             <button
               type="button"
-              onClick={() => { setShowCreateForm(true); setNamaKelasBaru(""); }}
+              onClick={() => {
+                setShowCreateForm(true);
+                setNamaKelasBaru(tingkatKelas);
+              }}
               className="w-full rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50/50 hover:bg-purple-50 py-2.5 px-4 text-xs font-black text-purple-600 flex items-center justify-center gap-2 transition"
             >
               <span>+</span>

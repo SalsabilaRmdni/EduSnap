@@ -6,8 +6,9 @@ const MateriSchema = new Schema({
   mataPelajaran: { type: String, default: "Tematik / Umum" },
   kelas: { type: String, default: "SD (Umum)" },
   halaman: { type: String, default: "" },
-  gambarBase64: { type: String, required: true },
-  teksHasilOCR: { type: String, default: "" }, // hasil ekstrak teks dari foto
+  // Array base64, satu entri per halaman foto materi (urutan sesuai urutan upload)
+  gambarList: { type: [String], required: true },
+  teksHasilOCR: { type: String, default: "" }, // hasil ekstrak teks gabungan semua halaman
   createdAt: { type: Date, default: Date.now },
 });
 

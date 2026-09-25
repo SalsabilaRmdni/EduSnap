@@ -7,7 +7,9 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const formData = await req.formData();
-    const file = formData.get("gambar") as File | null;
+
+    // Sekarang bisa menerima banyak file sekaligus dengan key "gambar" yang sama
+    const files = formData.getAll("gambar") as File[];
     const namaMateri = formData.get("namaMateri") as string;
     const guruEmail = formData.get("guruEmail") as string;
 
@@ -15,17 +17,21 @@ export async function POST(req: NextRequest) {
     const kelas = (formData.get("kelas") as string) || "SD (Umum)";
     const halaman = (formData.get("halaman") as string) || "";
 
-    if (!file || !namaMateri || !guruEmail) {
+    if (!files || files.length === 0 || !namaMateri || !guruEmail) {
       return NextResponse.json(
-        { error: "Data tidak lengkap" },
+        { error: "Data tidak lengkap. Pastikan minimal 1 foto sudah dipilih." },
         { status: 400 }
       );
     }
 
-    // konversi file ke base64 (cukup untuk MVP, belum pakai cloud storage)
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
+    // Konversi tiap file ke base64, urut sesuai urutan upload (= urutan halaman)
+    const gambarList: string[] = [];
+    for (const file of files) {
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
+      gambarList.push(base64);
+    }
 
     const materiBaru = await Materi.create({
       guruEmail,
@@ -33,10 +39,10 @@ export async function POST(req: NextRequest) {
       mataPelajaran,
       kelas,
       halaman,
-      gambarBase64: base64,
+      gambarList,
     });
 
-    return NextResponse.json({ success: true, id: materiBaru._id });
+    return NextResponse.json({ success: true, id: materiBaru._id, jumlahHalaman: gambarList.length });
   } catch (err) {
     console.error(err);
     return NextResponse.json(

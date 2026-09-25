@@ -32,53 +32,58 @@ interface KelasData {
   kode_kelas: string;
 }
 
-// Preset gaya kartu pastel cerah seperti pada referensi
+// Preset gaya kartu pastel cerah untuk kuis yang benar-benar ada
 const CARD_THEMES = [
   {
-    bg: "bg-[#E0F2FE]", // Light blue
+    bg: "bg-[#E0F2FE]",
     border: "border-sky-200",
     iconBg: "bg-sky-400",
     arrowBg: "bg-sky-400 hover:bg-sky-500",
     textColor: "text-sky-950",
     subtitleColor: "text-sky-700",
     icon: "📘",
-    defaultMapel: "Matematika",
-    desc: "Belajar Pecahan & Berhitung",
   },
   {
-    bg: "bg-[#FCE7F3]", // Light pink
+    bg: "bg-[#FCE7F3]",
     border: "border-pink-200",
     iconBg: "bg-pink-400",
     arrowBg: "bg-pink-400 hover:bg-pink-500",
     textColor: "text-pink-950",
     subtitleColor: "text-pink-700",
     icon: "📖",
-    defaultMapel: "Bahasa Indonesia",
-    desc: "Membaca Cerita & Menulis",
   },
   {
-    bg: "bg-[#DCFCE7]", // Light mint green
+    bg: "bg-[#DCFCE7]",
     border: "border-emerald-200",
     iconBg: "bg-emerald-400",
     arrowBg: "bg-emerald-400 hover:bg-emerald-500",
     textColor: "text-emerald-950",
     subtitleColor: "text-emerald-700",
     icon: "🌱",
-    defaultMapel: "IPA",
-    desc: "Tumbuhan & Alam Sekitar",
   },
   {
-    bg: "bg-[#EDE9FE]", // Light purple
+    bg: "bg-[#EDE9FE]",
     border: "border-purple-200",
     iconBg: "bg-purple-400",
     arrowBg: "bg-purple-400 hover:bg-purple-500",
     textColor: "text-purple-950",
     subtitleColor: "text-purple-700",
     icon: "🌍",
-    defaultMapel: "IPS",
-    desc: "Lingkungan & Masyarakat",
   },
 ];
+
+function formatTanggal(iso: string | null) {
+  if (!iso) return "-";
+  try {
+    return new Date(iso).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return "-";
+  }
+}
 
 function SiswaDashboardContent() {
   const router = useRouter();
@@ -106,6 +111,7 @@ function SiswaDashboardContent() {
   const [kelas, setKelas] = useState<KelasData | null>(null);
   const [kuisList, setKuisList] = useState<KuisSiswaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showProfil, setShowProfil] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     if (!kodeKelas || !namaSiswa) {
@@ -137,10 +143,36 @@ function SiswaDashboardContent() {
     loadDashboard();
   }, [loadDashboard]);
 
+  // Pisahkan kuis yang belum dikerjakan (Materi Tersedia) dan yang sudah (Riwayat)
+  const kuisBelumDikerjakan = kuisList.filter((k) => !k.sudah_mengerjakan);
+  const kuisSudahDikerjakan = [...kuisList]
+    .filter((k) => k.sudah_mengerjakan)
+    .sort((a, b) => {
+      const ta = a.dikerjakan_pada ? new Date(a.dikerjakan_pada).getTime() : 0;
+      const tb = b.dikerjakan_pada ? new Date(b.dikerjakan_pada).getTime() : 0;
+      return tb - ta; // terbaru dulu
+    });
+
   // Hitung persentase progres belajar
   const totalKuis = kuisList.length;
-  const selesaiCount = kuisList.filter((k) => k.sudah_mengerjakan).length;
-  const progressPercent = totalKuis > 0 ? Math.round((selesaiCount / totalKuis) * 100) : 80;
+  const selesaiCount = kuisSudahDikerjakan.length;
+  const progressPercent = totalKuis > 0 ? Math.round((selesaiCount / totalKuis) * 100) : 0;
+
+  // Rata-rata nilai dari kuis yang sudah dikerjakan
+  const rataRataNilai =
+    kuisSudahDikerjakan.length > 0
+      ? Math.round(
+          kuisSudahDikerjakan.reduce((sum, k) => sum + (k.nilai ?? 0), 0) /
+            kuisSudahDikerjakan.length
+        )
+      : null;
+
+  const handleLogout = () => {
+    localStorage.removeItem("edusnap_kode_kelas");
+    localStorage.removeItem("edusnap_siswa_nama");
+    setShowProfil(false);
+    router.push("/join");
+  };
 
   if (loading) {
     return (
@@ -164,13 +196,20 @@ function SiswaDashboardContent() {
 
           <div className="flex items-center gap-3">
             <span className="text-xl">⭐</span>
-            <StudentIllustration variant="avatar" className="w-10 h-10" />
+            <button
+              type="button"
+              onClick={() => setShowProfil(true)}
+              className="rounded-full ring-2 ring-transparent hover:ring-sky-200 transition"
+              aria-label="Lihat profil"
+            >
+              <StudentIllustration variant="avatar" className="w-10 h-10" />
+            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-md sm:max-w-2xl w-full mx-auto p-4 space-y-4">
+      <main className="flex-1 max-w-md sm:max-w-2xl w-full mx-auto p-4 space-y-5">
         {/* Greeting Card with Waving Boy */}
         <div className="rounded-[32px] border-2 border-sky-100 bg-white p-5 sm:p-6 shadow-sm flex items-center justify-between gap-4">
           <div className="space-y-1">
@@ -189,7 +228,6 @@ function SiswaDashboardContent() {
 
         {/* Progress Belajar Card */}
         <div className="rounded-3xl border-2 border-sky-100 bg-white p-4 shadow-sm flex items-center gap-4">
-          {/* Star Icon */}
           <div className="h-11 w-11 rounded-2xl bg-amber-100 flex items-center justify-center text-xl shrink-0">
             ⭐
           </div>
@@ -199,7 +237,6 @@ function SiswaDashboardContent() {
               <span>Progress Belajar</span>
               <span className="text-slate-900">{progressPercent}%</span>
             </div>
-            {/* Green Progress Bar */}
             <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
               <div
                 className="bg-emerald-400 h-full rounded-full transition-all duration-500"
@@ -209,16 +246,15 @@ function SiswaDashboardContent() {
           </div>
         </div>
 
-        {/* Section Materi Tersedia */}
-        <div className="space-y-3 pt-1">
+        {/* Section Materi Tersedia (belum dikerjakan) */}
+        <div className="space-y-3">
           <h2 className="text-base sm:text-lg font-black text-slate-900">
             Materi Tersedia
           </h2>
 
-          {/* Grid Cards (2x2) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {kuisList.length > 0 ? (
-              kuisList.map((kuis, idx) => {
+          {kuisBelumDikerjakan.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {kuisBelumDikerjakan.map((kuis, idx) => {
                 const theme = CARD_THEMES[idx % CARD_THEMES.length];
                 return (
                   <div
@@ -250,43 +286,153 @@ function SiswaDashboardContent() {
                     </Link>
                   </div>
                 );
-              })
-            ) : (
-              // Default 4 subjects if no quizzes are created yet (matching reference mockup)
-              CARD_THEMES.map((theme, idx) => (
-                <div
-                  key={idx}
-                  className={`rounded-3xl border-2 ${theme.border} ${theme.bg} p-4 sm:p-5 flex items-center justify-between gap-3 shadow-xs`}
-                >
-                  <div className="flex items-center gap-3 truncate">
-                    <div className={`h-12 w-12 rounded-2xl ${theme.iconBg} flex items-center justify-center text-2xl shadow-xs shrink-0`}>
-                      {theme.icon}
-                    </div>
-                    <div className="truncate space-y-0.5">
-                      <h3 className={`font-black text-sm sm:text-base ${theme.textColor} truncate`}>
-                        {theme.defaultMapel}
-                      </h3>
-                      <p className={`text-xs font-bold ${theme.subtitleColor} truncate`}>
-                        {theme.desc}
-                      </p>
-                      <p className="text-[11px] font-extrabold text-slate-500">
-                        10 Soal
-                      </p>
-                    </div>
-                  </div>
+              })}
+            </div>
+          ) : totalKuis > 0 ? (
+            <div className="rounded-3xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 p-6 flex flex-col items-center text-center gap-2">
+              <span className="text-3xl">🎉</span>
+              <p className="font-black text-emerald-700 text-sm">
+                Semua materi sudah dikerjakan!
+              </p>
+              <p className="text-xs text-emerald-600 font-semibold">
+                Cek riwayat di bawah untuk lihat nilai kamu.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-3xl border-2 border-dashed border-sky-200 bg-white p-8 flex flex-col items-center text-center gap-3">
+              <span className="text-4xl">📭</span>
+              <div className="space-y-1">
+                <p className="font-black text-slate-700 text-sm">
+                  Belum ada materi dari guru
+                </p>
+                <p className="text-xs text-slate-400 font-semibold max-w-xs">
+                  Guru kamu belum menambahkan kuis untuk kelas ini. Coba cek
+                  lagi nanti, ya!
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
 
-                  <Link
-                    href="/join"
-                    className={`h-9 w-9 rounded-full ${theme.arrowBg} text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm transition active:scale-95`}
-                  >
-                    →
-                  </Link>
-                </div>
-              ))
+        {/* Section Riwayat & Nilai (sudah dikerjakan) */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base sm:text-lg font-black text-slate-900">
+              Riwayat & Nilai
+            </h2>
+            {rataRataNilai !== null && (
+              <span className="text-xs font-black text-slate-500">
+                Rata-rata: <span className="text-purple-600">{rataRataNilai}</span>
+              </span>
             )}
           </div>
+
+          {kuisSudahDikerjakan.length > 0 ? (
+            <div className="space-y-2.5">
+              {kuisSudahDikerjakan.map((kuis) => (
+                <div
+                  key={kuis.id}
+                  className="rounded-2xl border-2 border-sky-100 bg-white p-4 flex items-center justify-between gap-3 shadow-xs"
+                >
+                  <div className="truncate space-y-0.5">
+                    <h3 className="font-black text-sm text-slate-900 truncate">
+                      {kuis.mata_pelajaran || kuis.judul_kuis}
+                    </h3>
+                    <p className="text-xs font-bold text-slate-500 truncate">
+                      {kuis.judul_kuis}
+                    </p>
+                    <p className="text-[11px] font-extrabold text-slate-400">
+                      Dikerjakan {formatTanggal(kuis.dikerjakan_pada)} ·{" "}
+                      {kuis.jumlah_benar ?? 0}/{kuis.total_soal} Benar
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <div
+                      className={`rounded-2xl px-3 py-2 text-lg font-black ${
+                        (kuis.nilai ?? 0) >= 80
+                          ? "bg-emerald-100 text-emerald-700"
+                          : (kuis.nilai ?? 0) >= 60
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      {kuis.nilai ?? 0}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white p-6 flex flex-col items-center text-center gap-2">
+              <span className="text-3xl">📝</span>
+              <p className="text-xs text-slate-400 font-semibold">
+                Belum ada kuis yang kamu kerjakan.
+              </p>
+            </div>
+          )}
         </div>
       </main>
+
+      {/* Modal Profil Siswa */}
+      {showProfil && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 space-y-5 shadow-xl border-2 border-sky-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-900">Profil Siswa</h3>
+              <button
+                onClick={() => setShowProfil(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1"
+                aria-label="Tutup"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center gap-2 py-2">
+              <StudentIllustration variant="avatar" className="w-20 h-20" />
+              <p className="text-base font-black text-slate-900">
+                {siswa?.nama || namaSiswa}
+              </p>
+              {kelas && (
+                <span className="rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-black px-3 py-1">
+                  {kelas.nama_kelas}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
+                <span className="text-xs font-bold text-slate-500">Kode Kelas</span>
+                <span className="text-sm font-black text-slate-900 font-mono tracking-wide">
+                  {kelas?.kode_kelas || kodeKelas}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
+                <span className="text-xs font-bold text-slate-500">Kuis Selesai</span>
+                <span className="text-sm font-black text-slate-900">
+                  {selesaiCount} / {totalKuis}
+                </span>
+              </div>
+              {rataRataNilai !== null && (
+                <div className="flex items-center justify-between rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
+                  <span className="text-xs font-bold text-slate-500">Rata-rata Nilai</span>
+                  <span className="text-sm font-black text-purple-600">{rataRataNilai}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full rounded-2xl bg-rose-500 hover:bg-rose-600 active:scale-98 py-3 text-sm font-black text-white shadow-md shadow-rose-300/40 transition flex items-center justify-center gap-2"
+            >
+              <span>🚪</span>
+              <span>Keluar Akun</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Navigation */}
       <BottomNavSiswa />

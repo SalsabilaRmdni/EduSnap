@@ -59,13 +59,20 @@ async function compressImage(file: File, maxWidth = 1400, quality = 0.75): Promi
   });
 }
 
+interface FotoHalaman {
+  file: File;
+  previewUrl: string;
+}
+
 export default function UploadMateriSection({ guruEmail }: { guruEmail: string }) {
   const [namaMateri, setNamaMateri] = useState("");
   const [mataPelajaran, setMataPelajaran] = useState(MAPEL_OPTIONS[0]);
   const [kelas, setKelas] = useState("Kelas 4 SD");
   const [halaman, setHalaman] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Sekarang menampung banyak foto (satu per halaman), urut sesuai urutan ditambahkan
+  const [fotoList, setFotoList] = useState<FotoHalaman[]>([]);
+
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [materiId, setMateriId] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
@@ -76,55 +83,57 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Pilih banyak file sekaligus dari galeri
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0] ?? null;
-    if (!selectedFile) return;
+    const selectedFiles = Array.from(e.target.files ?? []);
+    if (selectedFiles.length === 0) return;
 
     setCompressing(true);
     try {
-      const compressed = await compressImage(selectedFile);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(compressed);
-      setPreviewUrl(URL.createObjectURL(compressed));
-    } catch {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(selectedFile);
-      setPreviewUrl(URL.createObjectURL(selectedFile));
+      const compressedList: FotoHalaman[] = [];
+      for (const selectedFile of selectedFiles) {
+        try {
+          const compressed = await compressImage(selectedFile);
+          compressedList.push({ file: compressed, previewUrl: URL.createObjectURL(compressed) });
+        } catch {
+          compressedList.push({ file: selectedFile, previewUrl: URL.createObjectURL(selectedFile) });
+        }
+      }
+      setFotoList((prev) => [...prev, ...compressedList]);
     } finally {
       setCompressing(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
   };
 
+  // Dipanggil tiap kali guru konfirmasi 1 foto dari CameraModal (bisa dipanggil berkali-kali)
   const handleCaptureCamera = async (capturedFile: File) => {
-    setIsCameraOpen(false);
     setCompressing(true);
     try {
       const compressed = await compressImage(capturedFile);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(compressed);
-      setPreviewUrl(URL.createObjectURL(compressed));
+      setFotoList((prev) => [...prev, { file: compressed, previewUrl: URL.createObjectURL(compressed) }]);
     } catch {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(capturedFile);
-      setPreviewUrl(URL.createObjectURL(capturedFile));
+      setFotoList((prev) => [...prev, { file: capturedFile, previewUrl: URL.createObjectURL(capturedFile) }]);
     } finally {
       setCompressing(false);
     }
   };
 
-  const handleRemovePhoto = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    if (galleryInputRef.current) galleryInputRef.current.value = "";
+  const handleRemovePhoto = (index: number) => {
+    setFotoList((prev) => {
+      const target = prev[index];
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handleUpload = async () => {
-    if (!file || !namaMateri.trim()) return;
+    if (fotoList.length === 0 || !namaMateri.trim()) return;
     setStatus("loading");
 
     const formData = new FormData();
-    formData.append("gambar", file);
+    // Kirim semua foto dengan key "gambar" yang sama, urut sesuai urutan halaman
+    fotoList.forEach(({ file }) => formData.append("gambar", file));
     formData.append("namaMateri", namaMateri.trim());
     formData.append("mataPelajaran", mataPelajaran);
     formData.append("kelas", kelas);
@@ -172,13 +181,16 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
     }
   };
 
+  const jumlahHalaman = fotoList.length;
+
   return (
     <div className="w-full max-w-4xl space-y-6">
-      {/* Hidden file input */}
+      {/* Hidden file input, sekarang bisa pilih banyak file sekaligus */}
       <input
         ref={galleryInputRef}
         type="file"
         accept="image/*"
+        multiple
         onChange={handleFileChange}
         className="hidden"
       />
@@ -205,7 +217,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
             Foto Materi
           </h3>
           <p className="text-xs sm:text-sm text-sky-800/80 font-semibold leading-relaxed">
-            Ambil foto halaman buku menggunakan kamera HP atau laptop secara langsung.
+            Ambil foto halaman buku menggunakan kamera HP atau laptop. Bisa lebih dari 1 halaman berturut-turut.
           </p>
           <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-black text-sky-600 bg-sky-200/70 px-3.5 py-1.5 rounded-full">
             <span>📷 Buka Kamera</span>
@@ -233,7 +245,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
             Upload Materi
           </h3>
           <p className="text-xs sm:text-sm text-purple-800/80 font-semibold leading-relaxed">
-            Pilih dan unggah gambar materi buku dari galeri perangkat Anda.
+            Pilih beberapa gambar materi buku sekaligus dari galeri perangkat Anda.
           </p>
           <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-black text-purple-600 bg-purple-200/70 px-3.5 py-1.5 rounded-full">
             <span>🖼️ Pilih dari Galeri</span>
@@ -244,7 +256,6 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
 
       {/* Selected Photo Card & Details Form */}
       <div className="rounded-3xl border-2 border-slate-200/80 bg-white p-6 sm:p-8 shadow-sm space-y-6 relative overflow-hidden">
-        {/* Decorative stationery stickers at corner */}
         <div className="absolute right-4 bottom-2 text-3xl opacity-20 pointer-events-none select-none">
           ✏️ 📐 📏
         </div>
@@ -307,42 +318,62 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
           </div>
         </div>
 
-        {/* Photo Preview if Selected */}
-        {previewUrl ? (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/50 p-4 flex flex-col sm:flex-row items-center gap-4">
-            <div className="relative w-32 h-32 rounded-xl border border-emerald-200 overflow-hidden bg-white shrink-0 shadow-sm">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewUrl}
-                alt="Preview Foto Materi"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="space-y-2 text-center sm:text-left flex-1">
+        {/* Grid Preview Semua Halaman Foto */}
+        {jumlahHalaman > 0 ? (
+          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/50 p-4 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full inline-flex items-center gap-1">
                 <span>✅</span>
-                <span>Foto Materi Terpilih</span>
+                <span>{jumlahHalaman} Halaman Foto Terpilih</span>
               </span>
-              <p className="text-xs text-slate-600 font-medium">
-                Foto siap diproses OCR. Pastikan tulisan pada materi buku tampak terbaca dengan jelas.
-              </p>
               {status !== "success" && (
-                <div className="flex flex-wrap gap-3 pt-1 justify-center sm:justify-start">
-                  <button
-                    type="button"
-                    onClick={handleRemovePhoto}
-                    className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1"
-                  >
-                    <span>🗑️</span>
-                    <span>Ganti / Hapus Foto</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={compressing}
+                  className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:underline"
+                >
+                  + Tambah Foto Lagi
+                </button>
               )}
             </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+              {fotoList.map((foto, idx) => (
+                <div
+                  key={idx}
+                  className="relative rounded-xl border border-emerald-200 overflow-hidden bg-white shadow-sm aspect-square group"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={foto.previewUrl}
+                    alt={`Halaman ${idx + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                  <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded">
+                    {idx + 1}
+                  </span>
+                  {status !== "success" && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(idx)}
+                      className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center hover:bg-red-600 opacity-0 group-hover:opacity-100 transition"
+                      title="Hapus halaman ini"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-slate-600 font-medium">
+              Foto siap diproses OCR. Pastikan tulisan pada tiap halaman tampak terbaca dengan jelas.
+            </p>
           </div>
         ) : (
           <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-5 text-center text-xs text-slate-500 font-medium">
-            💡 Pilih salah satu opsi di atas: <strong>Foto Materi</strong> menggunakan kamera HP atau <strong>Upload Materi</strong> dari galeri.
+            💡 Pilih salah satu opsi di atas: <strong>Foto Materi</strong> menggunakan kamera HP (bisa berkali-kali untuk tiap halaman) atau <strong>Upload Materi</strong> dari galeri (bisa pilih banyak sekaligus).
           </div>
         )}
 
@@ -418,16 +449,16 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
           <div className="pt-2">
             <button
               onClick={handleUpload}
-              disabled={status === "loading" || !file || !namaMateri.trim() || compressing}
+              disabled={status === "loading" || jumlahHalaman === 0 || !namaMateri.trim() || compressing}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-purple-600 hover:bg-purple-700 active:scale-95 px-8 py-3.5 text-sm font-black text-white shadow-lg shadow-purple-600/20 transition disabled:opacity-50"
             >
               {status === "loading" ? (
                 <span className="flex items-center gap-2">
                   <span className="inline-block animate-spin">⏳</span>
-                  <span>Mengunggah Foto Materi...</span>
+                  <span>Mengunggah {jumlahHalaman} Halaman Materi...</span>
                 </span>
               ) : (
-                "Simpan & Lanjut ke Ekstrak Teks (OCR) →"
+                `Simpan ${jumlahHalaman > 0 ? `${jumlahHalaman} Halaman` : ""} & Lanjut ke Ekstrak Teks (OCR) →`
               )}
             </button>
 
@@ -442,7 +473,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
           <div className="space-y-4 border-t border-slate-100 pt-5">
             <div className="flex items-center gap-2 text-emerald-800 bg-emerald-50 p-4 rounded-2xl text-xs sm:text-sm font-bold border border-emerald-200">
               <span>✅</span>
-              <span>Foto materi berhasil diunggah! Tekan tombol di bawah untuk membaca teks secara otomatis.</span>
+              <span>{jumlahHalaman} halaman foto materi berhasil diunggah! Tekan tombol di bawah untuk membaca teks secara otomatis.</span>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -454,7 +485,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
                 {ocrStatus === "loading" ? (
                   <>
                     <span className="inline-block animate-spin">⏳</span>
-                    <span>Membaca teks dari foto (OCR)...</span>
+                    <span>Membaca teks dari {jumlahHalaman} halaman (OCR)...</span>
                   </>
                 ) : ocrStatus === "done" ? (
                   "✅ Teks Berhasil Diekstrak"
@@ -483,7 +514,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
             {ocrStatus === "done" && (
               <div className="space-y-2 pt-2">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-500 block">
-                  Hasil Ekstraksi Teks (OCR):
+                  Hasil Ekstraksi Teks (OCR) — {jumlahHalaman} Halaman:
                 </label>
                 <div className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-700 max-h-52 overflow-y-auto whitespace-pre-wrap font-mono border border-slate-200">
                   {teksHasilOCR || "(Tidak ada teks yang terdeteksi. Namun Anda tetap dapat membuat soal.)"}
@@ -499,6 +530,7 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCaptureCamera}
+        photoCount={jumlahHalaman}
       />
     </div>
   );
