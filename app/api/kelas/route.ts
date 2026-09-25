@@ -4,25 +4,30 @@ import Kelas from "@/models/Kelas";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { generateKodeKelas } from "@/lib/generateKode";
 
-// GET: Ambil semua kelas milik guru (dan backfill kode_kelas jika belum ada)
+// GET: Ambil semua kelas milik guru yang sedang login
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
 
-    const searchParams = req.nextUrl.searchParams;
-    let guruId = searchParams.get("guruId");
+    // Ambil session guru dari cookie
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const session = token ? await verifySessionToken(token) : null;
 
-    if (!guruId) {
-      const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-      const session = token ? await verifySessionToken(token) : null;
-      guruId = session?.guruId || null;
+    // Pastikan guru sudah login
+    if (!session?.guruId) {
+      return NextResponse.json(
+        { error: "Sesi guru tidak valid atau belum login" },
+        { status: 401 }
+      );
     }
 
-    if (!guruId) {
-      return NextResponse.json({ error: "guruId wajib disertakan" }, { status: 400 });
-    }
+    // Gunakan guruId dari session, bukan dari URL
+    const guruId = session.guruId;
 
-    const daftarKelas = await Kelas.find({ guru_id: guruId }).sort({ nama_kelas: 1 });
+    // Ambil hanya kelas milik guru yang sedang login
+    const daftarKelas = await Kelas.find({
+      guru_id: guruId,
+    }).sort({ nama_kelas: 1 });
 
     // Pastikan setiap kelas memiliki kode_kelas
     for (const k of daftarKelas) {
@@ -32,49 +37,87 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, kelas: daftarKelas });
+    return NextResponse.json({
+      success: true,
+      kelas: daftarKelas,
+    });
   } catch (err) {
-    console.error("Error get kelas:", err);
-    return NextResponse.json({ error: "Gagal mengambil data kelas" }, { status: 500 });
+    console.error("Error GET kelas:", err);
+
+    return NextResponse.json(
+      { error: "Gagal mengambil data kelas" },
+      { status: 500 }
+    );
   }
 }
 
-// POST: Cari atau buat kelas baru untuk guru
+// POST: Buat kelas baru untuk guru yang sedang login
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
 
+    // Ambil session guru dari cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
     const session = token ? await verifySessionToken(token) : null;
 
-    const body = await req.json();
-    const guruId = body.guruId || session?.guruId;
-    const namaKelas = body.namaKelas?.trim();
-
-    if (!guruId || !namaKelas) {
+    // Pastikan guru sudah login
+    if (!session?.guruId) {
       return NextResponse.json(
-        { error: "guruId dan namaKelas wajib diisi" },
+        { error: "Sesi guru tidak valid atau belum login" },
+        { status: 401 }
+      );
+    }
+
+    // Gunakan guruId dari session
+    const guruId = session.guruId;
+
+    // Ambil nama kelas dari request
+    const body = await req.json();
+    const namaKelas =
+      typeof body.namaKelas === "string"
+        ? body.namaKelas.trim()
+        : "";
+
+    if (!namaKelas) {
+      return NextResponse.json(
+        { error: "Nama kelas wajib diisi" },
         { status: 400 }
       );
     }
 
-    // Cari kelas yang sudah ada atau buat baru
-    let kelas = await Kelas.findOne({ guru_id: guruId, nama_kelas: namaKelas });
+    // Cek apakah guru ini sudah memiliki kelas dengan nama yang sama
+    let kelas = await Kelas.findOne({
+      guru_id: guruId,
+      nama_kelas: namaKelas,
+    });
+
+    // Kalau belum ada, buat kelas baru
     if (!kelas) {
       const kodeKelas = await generateKodeKelas(namaKelas);
+
       kelas = await Kelas.create({
         guru_id: guruId,
         nama_kelas: namaKelas,
         kode_kelas: kodeKelas,
       });
-    } else if (!kelas.kode_kelas) {
+    }
+
+    // Kalau kelas sudah ada tetapi belum punya kode
+    else if (!kelas.kode_kelas) {
       kelas.kode_kelas = await generateKodeKelas(namaKelas);
       await kelas.save();
     }
 
-    return NextResponse.json({ success: true, kelas });
+    return NextResponse.json({
+      success: true,
+      kelas,
+    });
   } catch (err) {
-    console.error("Error post kelas:", err);
-    return NextResponse.json({ error: "Gagal memproses data kelas" }, { status: 500 });
+    console.error("Error POST kelas:", err);
+
+    return NextResponse.json(
+      { error: "Gagal membuat kelas" },
+      { status: 500 }
+    );
   }
 }

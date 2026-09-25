@@ -58,7 +58,7 @@ export default function DashboardPage() {
         setGuru(data.guru);
 
         // Fetch Kelas Guru
-        fetch(`/api/kelas?guruId=${data.guru.guruId}`)
+        fetch("/api/kelas")
           .then((r) => r.json())
           .then((kData) => {
             if (kData.success && Array.isArray(kData.kelas)) {
@@ -107,10 +107,7 @@ export default function DashboardPage() {
 
   if (!guru) return null;
 
-  const kelasUtama = kelasList[0] || {
-    nama_kelas: "Kelas 4A",
-    kode_kelas: "4A-X7K9",
-  };
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
@@ -253,34 +250,54 @@ export default function DashboardPage() {
                 Kelas Saya
               </h2>
 
-              {/* Card Kelas Saya (Mengikuti Gambar Referensi) */}
-              <Link
-                href="/dashboard/kelas"
-                className="rounded-3xl border-2 border-sky-100 bg-white p-5 sm:p-6 shadow-sm hover:shadow-md hover:border-sky-300 transition-all flex items-center justify-between gap-4 block"
-              >
-                <div className="flex items-center gap-4">
-                  {/* School Icon Graphic */}
-                  <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
-                    🏫
-                  </div>
-
+              {kelasList.length === 0 ? (
+                /* ── Empty State: Guru belum punya kelas ── */
+                <div className="rounded-3xl border-2 border-dashed border-sky-200 bg-sky-50/50 p-8 flex flex-col items-center justify-center text-center gap-3">
+                  <span className="text-5xl">🏫</span>
                   <div className="space-y-1">
-                    <h3 className="text-lg font-black text-slate-900">
-                      {kelasUtama.nama_kelas}
-                    </h3>
-                    <p className="text-xs font-bold text-slate-400">
-                      {siswaTotal} Siswa
-                    </p>
-                    <p className="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md inline-block">
-                      Kode: {kelasUtama.kode_kelas}
+                    <p className="font-black text-slate-700 text-sm">Belum ada kelas</p>
+                    <p className="text-xs text-slate-400 font-semibold">
+                      Buat kelas pertama Anda untuk mulai mengelola siswa.
                     </p>
                   </div>
+                  <Link
+                    href="/dashboard/kelas"
+                    className="rounded-2xl bg-purple-600 hover:bg-purple-700 active:scale-98 py-2.5 px-5 text-sm font-black text-white shadow-md shadow-purple-300/50 flex items-center justify-center gap-2 transition"
+                  >
+                    <span>+</span>
+                    <span>Buat Kelas Pertama</span>
+                  </Link>
                 </div>
+              ) : (
+                /* ── Card Kelas: data real dari MongoDB ── */
+                <Link
+                  href="/dashboard/kelas"
+                  className="rounded-3xl border-2 border-sky-100 bg-white p-5 sm:p-6 shadow-sm hover:shadow-md hover:border-sky-300 transition-all flex items-center justify-between gap-4 block"
+                >
+                  <div className="flex items-center gap-4">
+                    {/* School Icon Graphic */}
+                    <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
+                      🏫
+                    </div>
 
-                <div className="text-slate-400 font-black text-xl hover:text-slate-600">
-                  ›
-                </div>
-              </Link>
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-black text-slate-900">
+                        {kelasList[0].nama_kelas}
+                      </h3>
+                      <p className="text-xs font-bold text-slate-400">
+                        {siswaTotal} Siswa
+                      </p>
+                      <p className="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md inline-block">
+                        Kode: {kelasList[0].kode_kelas}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-slate-400 font-black text-xl hover:text-slate-600">
+                    ›
+                  </div>
+                </Link>
+              )}
 
               {/* Big Yellow Button: + Tambah Materi */}
               <button
@@ -291,6 +308,7 @@ export default function DashboardPage() {
                 <span>Tambah Materi</span>
               </button>
             </div>
+
 
             {/* Bottom Graphic: Books & Kid */}
             <div className="pt-6 flex items-end justify-between border-t border-slate-100">
