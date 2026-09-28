@@ -2,13 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Sesi from "@/models/Sesi";
 import Peserta from "@/models/Peserta";
+import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ kode: string }> }
 ) {
   try {
     await connectDB();
+
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const session = token ? await verifySessionToken(token) : null;
+
+    if (!session?.guruId) {
+      return NextResponse.json(
+        { status: "error", message: "Sesi guru tidak valid atau belum login" },
+        { status: 401 }
+      );
+    }
+
     const { kode } = await context.params;
 
     const sesi = await Sesi.findOne({
@@ -19,6 +31,18 @@ export async function GET(
       return NextResponse.json(
         { status: "error", message: "Sesi kuis tidak ditemukan" },
         { status: 404 }
+      );
+    }
+
+    // Pastikan sesi kuis ini benar-benar milik guru yang sedang login
+    const isOwner =
+      (sesi.guru_id && String(sesi.guru_id) === String(session.guruId)) ||
+      (sesi.guru_email && sesi.guru_email.toLowerCase() === session.email.toLowerCase());
+
+    if (!isOwner) {
+      return NextResponse.json(
+        { status: "error", message: "Anda tidak berhak melihat rekap nilai sesi kuis ini" },
+        { status: 403 }
       );
     }
 

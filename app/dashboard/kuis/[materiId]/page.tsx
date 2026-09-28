@@ -16,6 +16,7 @@ type MateriInfo = {
   namaMateri: string;
   mataPelajaran: string;
   kelas: string;
+  kelas_id?: string;
   tingkat_kelas?: string;
   halaman?: string;
   teksHasilOCR?: string;
@@ -52,6 +53,9 @@ export default function KuisPage() {
       if (data.status === "ok") {
         setMateri(data.materi);
         setSoalList(data.soal || []);
+        if (data.materi?.kelas_id) {
+          setKelasTerpilih(data.materi.kelas_id);
+        }
       } else {
         setErrorMsg(data.message || "Gagal memuat materi");
       }
@@ -65,21 +69,16 @@ export default function KuisPage() {
   const loadKelas = useCallback(async () => {
     setLoadingKelas(true);
     try {
-      const meRes = await fetch("/api/auth/me");
-      const meData = await meRes.json();
-      const guruId = meData?.guru?.guruId;
-      if (!guruId) return;
-
-      const res = await fetch(`/api/kelas?guruId=${guruId}`);
+      const res = await fetch("/api/kelas");
       const data = await res.json();
       if (data.success && Array.isArray(data.kelas)) {
         setDaftarKelas(data.kelas);
         if (data.kelas.length > 0) {
-          setKelasTerpilih(data.kelas[0]._id);
+          setKelasTerpilih((prev) => prev || data.kelas[0]._id);
         }
       }
     } catch {
-      // Diamkan saja jika kelas belum ada
+      // Diamkan jika belum ada kelas
     } finally {
       setLoadingKelas(false);
     }
@@ -112,8 +111,48 @@ export default function KuisPage() {
     }
   };
 
+  const handleUbahKunci = async (soalId: string, indexKunciBaru: number) => {
+    try {
+      const res = await fetch(`/api/materi/${materiId}/soal`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soalId, jawabanBenar: indexKunciBaru }),
+      });
+      if (res.ok) {
+        setSoalList((prev) =>
+          prev.map((s) => (s._id === soalId ? { ...s, jawabanBenar: indexKunciBaru } : s))
+        );
+      }
+    } catch {
+      setErrorMsg("Gagal memperbarui kunci jawaban");
+    }
+  };
+
+  const handleHapusSoal = async (soalId: string) => {
+    if (!confirm("Hapus butir soal ini?")) return;
+    try {
+      const res = await fetch(`/api/materi/${materiId}/soal?soalId=${soalId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setSoalList((prev) => prev.filter((s) => s._id !== soalId));
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.message || "Gagal menghapus butir soal");
+      }
+    } catch {
+      setErrorMsg("Gagal terhubung ke server");
+    }
+  };
+
   const handleBuatSesi = async () => {
     if (soalList.length === 0) return;
+
+    if (!kelasTerpilih) {
+      setErrorMsg("Pilih kelas tujuan terlebih dahulu untuk kuis ini.");
+      return;
+    }
+
     setCreatingSesi(true);
     setErrorMsg("");
     try {
@@ -123,7 +162,7 @@ export default function KuisPage() {
         body: JSON.stringify({
           materiId,
           judulKuis: materi?.namaMateri || "Kuis Interaktif",
-          kelasId: kelasTerpilih || undefined,
+          kelasId: kelasTerpilih,
         }),
       });
       const data = await res.json();
@@ -156,7 +195,7 @@ export default function KuisPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Header */}
       <header className="border-b border-slate-200/80 bg-white sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -196,7 +235,7 @@ export default function KuisPage() {
               {materi?.namaMateri || "Materi Buku SD"}
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Review butir soal yang dibuat oleh AI. Anda dapat menambahkan soal lagi atau langsung membuka sesi kuis untuk siswa.
+              Review butir soal yang dibuat oleh AI. Anda dapat mengubah kunci jawaban dengan mengklik opsi yang benar, atau menghapus butir soal sebelum membuka kuis.
             </p>
           </div>
 
@@ -204,15 +243,14 @@ export default function KuisPage() {
           {!kodeSesiBaru && (
             <div className="space-y-1.5 pt-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
-                Pilih Kelas Tujuan:
+                Target Kelas Pembelajaran: <span className="text-red-500">*</span>
               </label>
               <select
                 value={kelasTerpilih}
                 onChange={(e) => setKelasTerpilih(e.target.value)}
-                disabled={loadingKelas}
-                className="w-full sm:w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:border-indigo-600 focus:outline-none transition"
+                disabled={loadingKelas || Boolean(materi?.kelas_id)}
+                className="w-full sm:w-80 rounded-xl border border-slate-300 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:border-indigo-600 focus:outline-none transition disabled:bg-slate-50"
               >
-                <option value="">-- Buka untuk semua siswa --</option>
                 {daftarKelas.map((k) => (
                   <option key={k._id} value={k._id}>
                     {k.nama_kelas} (Kode: {k.kode_kelas})
@@ -220,7 +258,7 @@ export default function KuisPage() {
                 ))}
               </select>
               <p className="text-[11px] text-slate-400">
-                Jika kelas dipilih, hanya siswa yang terdaftar di kelas tersebut yang dapat mengerjakan kuis ini.
+                Hanya siswa yang terdaftar di kelas ini yang dapat mengerjakan dan melihat kuis ini.
               </p>
             </div>
           )}
@@ -248,7 +286,7 @@ export default function KuisPage() {
             {soalList.length > 0 && !kodeSesiBaru && (
               <button
                 onClick={handleBuatSesi}
-                disabled={creatingSesi}
+                disabled={creatingSesi || !kelasTerpilih}
                 className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 px-6 py-3 text-xs sm:text-sm font-bold text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50"
               >
                 {creatingSesi ? (
@@ -256,7 +294,7 @@ export default function KuisPage() {
                 ) : (
                   <>
                     <span>🚀</span>
-                    <span>Buka Sesi Kuis untuk Siswa</span>
+                    <span>Buka Sesi Kuis untuk Kelas</span>
                   </>
                 )}
               </button>
@@ -277,7 +315,7 @@ export default function KuisPage() {
             <div className="space-y-1 max-w-md mx-auto">
               <h2 className="text-xl font-black text-slate-900">Sesi Kuis Siswa Siap Digunakan!</h2>
               <p className="text-xs text-slate-500">
-                Bagikan kode kuis di bawah ini kepada siswa Anda. Siswa dapat langsung mengerjakan kuis tanpa registrasi akun.
+                Bagikan kode kuis di bawah ini kepada siswa di kelas tersebut. Siswa masuk dengan nama yang sudah terdaftar.
               </p>
             </div>
 
@@ -314,7 +352,7 @@ export default function KuisPage() {
             <h3 className="text-base font-bold text-slate-900">
               Daftar Butir Soal ({soalList.length} Soal)
             </h3>
-            <span className="text-xs text-slate-400">Pilihan ganda A, B, C, D</span>
+            <span className="text-xs text-slate-400">💡 Klik opsi jawaban untuk mengubah kunci</span>
           </div>
 
           {soalList.length === 0 ? (
@@ -328,15 +366,25 @@ export default function KuisPage() {
               {soalList.map((soal, idx) => (
                 <div
                   key={soal._id || idx}
-                  className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4"
+                  className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4 relative group"
                 >
-                  <div className="flex items-start gap-3">
-                    <span className="h-7 w-7 rounded-lg bg-indigo-100 text-indigo-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                      {idx + 1}
-                    </span>
-                    <p className="font-bold text-slate-900 text-sm sm:text-base leading-relaxed">
-                      {soal.pertanyaan}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span className="h-7 w-7 rounded-lg bg-indigo-100 text-indigo-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <p className="font-bold text-slate-900 text-sm sm:text-base leading-relaxed">
+                        {soal.pertanyaan}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleHapusSoal(soal._id)}
+                      className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg text-xs font-bold transition shrink-0"
+                      title="Hapus butir soal ini"
+                    >
+                      🗑️
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pl-10">
@@ -344,12 +392,14 @@ export default function KuisPage() {
                       const isCorrect = Number(soal.jawabanBenar) === oIdx;
                       const label = String.fromCharCode(65 + oIdx);
                       return (
-                        <div
+                        <button
                           key={oIdx}
-                          className={`rounded-2xl border p-3 flex items-center gap-3 text-xs sm:text-sm font-medium transition ${
+                          type="button"
+                          onClick={() => handleUbahKunci(soal._id, oIdx)}
+                          className={`rounded-2xl border p-3 flex items-center gap-3 text-xs sm:text-sm font-medium transition text-left cursor-pointer hover:border-emerald-300 ${
                             isCorrect
-                              ? "border-emerald-400 bg-emerald-50/70 text-emerald-900 font-bold"
-                              : "border-slate-200 bg-slate-50/50 text-slate-700"
+                              ? "border-emerald-400 bg-emerald-50/70 text-emerald-900 font-bold ring-2 ring-emerald-200"
+                              : "border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-100"
                           }`}
                         >
                           <span
@@ -361,13 +411,13 @@ export default function KuisPage() {
                           >
                             {label}
                           </span>
-                          <span className="truncate">{opsi}</span>
+                          <span className="truncate flex-1">{opsi}</span>
                           {isCorrect && (
-                            <span className="ml-auto text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                              Kunci
+                            <span className="ml-auto text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded shrink-0">
+                              Kunci ✓
                             </span>
                           )}
-                        </div>
+                        </button>
                       );
                     })}
                   </div>

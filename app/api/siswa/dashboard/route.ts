@@ -42,12 +42,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 3. Ambil semua sesi kuis untuk kelas ini (atau yang dibuat oleh guru kelas ini)
+    // 3. Ambil semua sesi kuis khusus untuk kelas ini
     const sesiList = await Sesi.find({
-      $or: [
-        { kelas_id: kelas._id },
-        { guru_id: kelas.guru_id, kelas_id: null },
-      ],
+      kelas_id: kelas._id,
       status: { $ne: "draft" },
     }).sort({ createdAt: -1 });
 

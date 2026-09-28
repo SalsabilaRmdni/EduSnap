@@ -64,9 +64,32 @@ interface FotoHalaman {
   previewUrl: string;
 }
 
-export default function UploadMateriSection({ guruEmail }: { guruEmail: string }) {
+export interface KelasOption {
+  _id: string;
+  nama_kelas: string;
+  kode_kelas: string;
+}
+
+interface UploadMateriSectionProps {
+  guruEmail: string;
+  kelasList?: KelasOption[];
+  defaultKelasId?: string | null;
+  onMateriUploaded?: (materiId: string) => void;
+}
+
+export default function UploadMateriSection({
+  guruEmail,
+  kelasList = [],
+  defaultKelasId,
+  onMateriUploaded,
+}: UploadMateriSectionProps) {
   const [namaMateri, setNamaMateri] = useState("");
   const [mataPelajaran, setMataPelajaran] = useState(MAPEL_OPTIONS[0]);
+  const [selectedKelasId, setSelectedKelasId] = useState<string>(() => {
+    if (defaultKelasId) return defaultKelasId;
+    if (kelasList.length > 0) return kelasList[0]._id;
+    return "";
+  });
   const [kelas, setKelas] = useState("Kelas 4 SD");
   const [halaman, setHalaman] = useState("");
 
@@ -136,9 +159,16 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
     fotoList.forEach(({ file }) => formData.append("gambar", file));
     formData.append("namaMateri", namaMateri.trim());
     formData.append("mataPelajaran", mataPelajaran);
-    formData.append("kelas", kelas);
     formData.append("halaman", halaman.trim());
     formData.append("guruEmail", guruEmail);
+
+    if (selectedKelasId) {
+      formData.append("kelasId", selectedKelasId);
+      const kObj = kelasList.find((k) => k._id === selectedKelasId);
+      formData.append("kelas", kObj ? kObj.nama_kelas : kelas);
+    } else {
+      formData.append("kelas", kelas);
+    }
 
     try {
       const res = await fetch("/api/materi/upload", {
@@ -150,6 +180,9 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
         const data = await res.json();
         setMateriId(data.id);
         setStatus("success");
+        if (onMateriUploaded) {
+          onMateriUploaded(data.id);
+        }
       } else {
         setStatus("error");
       }
@@ -413,20 +446,35 @@ export default function UploadMateriSection({ guruEmail }: { guruEmail: string }
 
           <div className="space-y-1.5">
             <label className="text-xs font-black uppercase tracking-wider text-slate-700">
-              Tingkat Kelas SD <span className="text-red-500">*</span>
+              Kelas Pembelajaran <span className="text-red-500">*</span>
             </label>
-            <select
-              value={kelas}
-              onChange={(e) => setKelas(e.target.value)}
-              disabled={status === "success"}
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-xs sm:text-sm text-slate-900 focus:border-purple-600 focus:outline-none disabled:bg-slate-50 font-bold transition"
-            >
-              {KELAS_OPTIONS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+            {kelasList.length > 0 ? (
+              <select
+                value={selectedKelasId}
+                onChange={(e) => setSelectedKelasId(e.target.value)}
+                disabled={status === "success"}
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-xs sm:text-sm text-slate-900 focus:border-purple-600 focus:outline-none disabled:bg-slate-50 font-bold transition"
+              >
+                {kelasList.map((k) => (
+                  <option key={k._id} value={k._id}>
+                    {k.nama_kelas} (Kode: {k.kode_kelas})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={kelas}
+                onChange={(e) => setKelas(e.target.value)}
+                disabled={status === "success"}
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-xs sm:text-sm text-slate-900 focus:border-purple-600 focus:outline-none disabled:bg-slate-50 font-bold transition"
+              >
+                {KELAS_OPTIONS.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="space-y-1.5 sm:col-span-2">

@@ -23,7 +23,14 @@ export async function POST(req: NextRequest) {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
     const session = token ? await verifySessionToken(token) : null;
 
-    const { materiId, judulKuis, customKode, kelasId } = await req.json();
+    if (!session?.guruId) {
+      return NextResponse.json(
+        { status: "error", message: "Sesi guru tidak valid atau belum login" },
+        { status: 401 }
+      );
+    }
+
+    const { materiId, judulKuis, customKode, kelasId: incomingKelasId } = await req.json();
 
     if (!materiId) {
       return NextResponse.json(
@@ -40,24 +47,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validasi kelasId (opsional) - kalau diisi, pastikan kelas itu benar milik guru yang login
-    let kelasValid: string | undefined = undefined;
-    if (kelasId) {
-      const kelas = await Kelas.findById(kelasId);
-      if (!kelas) {
-        return NextResponse.json(
-          { status: "error", message: "Kelas tidak ditemukan" },
-          { status: 404 }
-        );
-      }
-      if (session?.guruId && String(kelas.guru_id) !== String(session.guruId)) {
-        return NextResponse.json(
-          { status: "error", message: "Kelas ini bukan milik Anda" },
-          { status: 403 }
-        );
-      }
-      kelasValid = kelas._id.toString();
+    // Pastikan materi milik guru yang sedang login
+    const isMateriOwner =
+      (materi.guru_id && String(materi.guru_id) === String(session.guruId)) ||
+      (materi.guruEmail && materi.guruEmail.toLowerCase() === session.email.toLowerCase());
+
+    if (!isMateriOwner) {
+      return NextResponse.json(
+        { status: "error", message: "Materi ini bukan milik Anda" },
+        { status: 403 }
+      );
     }
+
+    // Tentukan kelas target: gunakan incomingKelasId atau dari materi.kelas_id
+    const targetKelasId = incomingKelasId || (materi.kelas_id ? String(materi.kelas_id) : null);
+
+    if (!targetKelasId) {
+      return NextResponse.json(
+        { status: "error", message: "Kelas target wajib dipilih untuk sesi kuis ini" },
+        { status: 400 }
+      );
+    }
+
+    // Validasi kelas target benar-benar milik guru yang sedang login dan masih aktif
+    const kelas = await Kelas.findOne({
+      _id: targetKelasId,
+      guru_id: session.guruId,
+      is_active: { $ne: false },
+    });
+
+    if (!kelas) {
+      return NextResponse.json(
+        { status: "error", message: "Kelas tidak ditemukan atau bukan milik Anda" },
+        { status: 403 }
+      );
+    }
+
+    const kelasValid = kelas._id.toString();
 
     const soalList = await Soal.find({ materiId }).sort({ createdAt: 1 });
     if (!soalList || soalList.length === 0) {
@@ -148,9 +174,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: "error", message: "Belum login" }, { status: 401 });
     }
 
-    const sesiList = await Sesi.find({
+    const kelasId = req.nextUrl.searchParams.get("kelasId");
+
+    const query: Record<string, unknown> = {
       $or: [{ guru_id: session.guruId }, { guru_email: session.email }],
-    }).sort({ createdAt: -1 });
+    };
+
+    if (kelasId) {
+      query.kelas_id = kelasId;
+    }
+
+    const sesiList = await Sesi.find(query).sort({ createdAt: -1 });
 
     return NextResponse.json({
       status: "ok",

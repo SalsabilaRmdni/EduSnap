@@ -49,6 +49,19 @@ export default function KelolaKelasPage() {
   const [tingkatKelas, setTingkatKelas] = useState(TINGKAT_KELAS_OPTIONS[3]);
   const [showTingkatDropdown, setShowTingkatDropdown] = useState(false);
 
+  // State Edit Kelas
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [namaKelasEdit, setNamaKelasEdit] = useState("");
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // State Hapus Kelas
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [loadingDelete, setLoadingDelete] = useState(false);
+  const [deleteCounts, setDeleteCounts] = useState<{ siswa: number; materi: number; sesi: number } | null>(null);
+  const [loadingCounts, setLoadingCounts] = useState(false);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
   // ──────────────────────────────────────────────
   // Helper: ambil siswa untuk kelas tertentu (READ-ONLY)
   // ──────────────────────────────────────────────
@@ -65,6 +78,111 @@ export default function KelolaKelasPage() {
       setLoadingSiswa(false);
     }
   }, []);
+
+  // ──────────────────────────────────────────────
+  // Handler Buka & Simpan Edit Kelas
+  // ──────────────────────────────────────────────
+  const bukaModalEdit = () => {
+    if (!kelasAktif) return;
+    setNamaKelasEdit(kelasAktif.nama_kelas);
+    setEditError(null);
+    setShowEditModal(true);
+  };
+
+  const simpanEditKelas = async () => {
+    if (!kelasAktif || !namaKelasEdit.trim()) return;
+    setLoadingEdit(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/kelas/${kelasAktif._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ namaKelas: namaKelasEdit.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(data.error || "Gagal memperbarui nama kelas");
+        return;
+      }
+      const updated = data.kelas;
+      setKelasAktif((prev) => (prev ? { ...prev, nama_kelas: updated.nama_kelas } : null));
+      setKelasList((prev) =>
+        prev.map((k) => (k._id === updated._id ? { ...k, nama_kelas: updated.nama_kelas } : k))
+      );
+      setShowEditModal(false);
+      setSuccessNotice(`Nama kelas berhasil diubah menjadi "${updated.nama_kelas}"`);
+      setTimeout(() => setSuccessNotice(null), 3500);
+    } catch {
+      setEditError("Gagal terhubung ke server.");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  // ──────────────────────────────────────────────
+  // Handler Buka & Konfirmasi Hapus Kelas
+  // ──────────────────────────────────────────────
+  const bukaModalHapus = async () => {
+    if (!kelasAktif) return;
+    setShowDeleteModal(true);
+    setLoadingCounts(true);
+    setDeleteCounts(null);
+    try {
+      const res = await fetch(`/api/kelas/${kelasAktif._id}`);
+      const data = await res.json();
+      if (data.success && data.counts) {
+        setDeleteCounts(data.counts);
+      } else {
+        setDeleteCounts({ siswa: daftarSiswa.length, materi: 0, sesi: 0 });
+      }
+    } catch {
+      setDeleteCounts({ siswa: daftarSiswa.length, materi: 0, sesi: 0 });
+    } finally {
+      setLoadingCounts(false);
+    }
+  };
+
+  const konfirmasiHapusKelas = async () => {
+    if (!kelasAktif) return;
+    const target = kelasAktif;
+    console.log("Konfirmasi hapus kelas di KelolaKelasPage:", target._id, target.nama_kelas);
+    setLoadingDelete(true);
+    try {
+      const res = await fetch(`/api/kelas/${target._id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      console.log("Response delete di KelolaKelasPage:", res.status, data);
+
+      if (!res.ok) {
+        setErrorMsg(data.error || "Gagal menghapus kelas");
+        setShowDeleteModal(false);
+        return;
+      }
+
+      const deletedId = target._id;
+      const sisaKelas = kelasList.filter((k) => k._id !== deletedId);
+      setKelasList(sisaKelas);
+
+      if (sisaKelas.length > 0) {
+        setKelasAktif(sisaKelas[0]);
+        loadSiswa(sisaKelas[0]._id);
+      } else {
+        setKelasAktif(null);
+        setDaftarSiswa([]);
+      }
+
+      setShowDeleteModal(false);
+      setSuccessNotice(`Kelas "${target.nama_kelas}" berhasil dihapus.`);
+      setTimeout(() => setSuccessNotice(null), 3500);
+    } catch (err) {
+      console.error("Error menghapus kelas di KelolaKelasPage:", err);
+      setErrorMsg("Gagal menghapus kelas dari server.");
+      setShowDeleteModal(false);
+    } finally {
+      setLoadingDelete(false);
+    }
+  };
 
   // ──────────────────────────────────────────────
   // 1. Ambil guruId dari session
@@ -194,6 +312,25 @@ export default function KelolaKelasPage() {
     }
   };
 
+  const hapusSiswa = async (siswaId: string, namaSiswa: string) => {
+    if (!kelasAktif) return;
+    if (!confirm(`Hapus siswa "${namaSiswa}" dari kelas ini?`)) return;
+
+    try {
+      const res = await fetch(`/api/kelas/${kelasAktif._id}/siswa?siswaId=${siswaId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setDaftarSiswa((prev) => prev.filter((s) => s._id !== siswaId));
+      } else {
+        const err = await res.json();
+        setErrorMsg(err.error || "Gagal menghapus siswa");
+      }
+    } catch {
+      setErrorMsg("Gagal terhubung ke server.");
+    }
+  };
+
   const handleCopyKode = () => {
     if (!kelasAktif?.kode_kelas) return;
     navigator.clipboard.writeText(kelasAktif.kode_kelas);
@@ -236,6 +373,14 @@ export default function KelolaKelasPage() {
           <div className="rounded-2xl bg-red-50 p-3 text-xs text-red-600 border border-red-200 font-bold flex items-center gap-2">
             <span>⚠️</span>
             <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* ── Pesan sukses ── */}
+        {successNotice && (
+          <div className="rounded-2xl bg-emerald-50 p-3 text-xs text-emerald-700 border border-emerald-200 font-bold flex items-center gap-2 animate-fade-in">
+            <span>✅</span>
+            <span>{successNotice}</span>
           </div>
         )}
 
@@ -383,28 +528,57 @@ export default function KelolaKelasPage() {
           <>
             {/* Card Informasi Kelas */}
             <div className="rounded-[32px] border-2 border-sky-100 bg-white p-5 shadow-sm space-y-3">
-              <div className="flex items-center gap-4">
-                <div className="h-14 w-14 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
-                  🏫
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                  <div className="h-13 w-13 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
+                    🏫
+                  </div>
+                  <div className="space-y-0.5 truncate">
+                    <h2 className="text-lg font-black text-slate-900 truncate">
+                      {kelasAktif.nama_kelas}
+                    </h2>
+                    <p className="text-xs font-bold text-slate-400">
+                      {daftarSiswa.length} Siswa Terdaftar
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-0.5 flex-1">
-                  <h2 className="text-lg font-black text-slate-900">
-                    {kelasAktif.nama_kelas}
-                  </h2>
-                  <p className="text-xs font-bold text-slate-400">
-                    {daftarSiswa.length} Siswa
-                  </p>
-                  <p className="text-[11px] font-extrabold text-slate-400">
-                    Kode Kelas
-                  </p>
+
+                {/* Tombol Edit & Hapus Kelas */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={bukaModalEdit}
+                    className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black transition flex items-center gap-1 shadow-2xs"
+                    title="Edit Nama Kelas"
+                  >
+                    <span>✏️</span>
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log("Tombol Hapus diklik di KelolaKelasPage untuk kelasAktif:", kelasAktif);
+                      bukaModalHapus();
+                    }}
+                    className="p-2 sm:px-3 sm:py-1.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black transition flex items-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                    title="Hapus Kelas Ini"
+                  >
+                    <span>🗑️</span>
+                    <span className="hidden sm:inline">Hapus</span>
+                  </button>
                 </div>
               </div>
 
               {/* Kode kelas & tombol salin */}
-              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                <span className="text-2xl font-black font-mono tracking-widest text-slate-900">
-                  {kelasAktif.kode_kelas}
-                </span>
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <div>
+                  <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                    Kode Kelas
+                  </p>
+                  <span className="text-2xl font-black font-mono tracking-widest text-slate-900">
+                    {kelasAktif.kode_kelas}
+                  </span>
+                </div>
                 <button
                   onClick={handleCopyKode}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-800 px-3.5 py-1.5 text-xs font-black transition"
@@ -454,7 +628,13 @@ export default function KelolaKelasPage() {
                         </div>
                         <span className="text-sm font-bold text-slate-900">{siswa.nama}</span>
                       </div>
-                      <span className="text-slate-300 font-bold text-lg">›</span>
+                      <button
+                        onClick={() => hapusSiswa(siswa._id, siswa.nama)}
+                        className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition text-xs font-bold"
+                        title="Hapus siswa ini"
+                      >
+                        🗑️
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -513,6 +693,140 @@ export default function KelolaKelasPage() {
                   className="flex-1 rounded-2xl bg-sky-400 hover:bg-sky-500 py-3 text-xs font-black text-white shadow-sm"
                 >
                   Simpan
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal Edit Nama Kelas ── */}
+        {showEditModal && kelasAktif && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="w-full max-w-sm bg-white rounded-[32px] p-6 space-y-4 shadow-2xl border-2 border-sky-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">✏️</span>
+                  <h3 className="text-lg font-black text-slate-900">Edit Nama Kelas</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold p-1 text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {editError && (
+                <div className="rounded-2xl bg-red-50 p-3 text-xs text-red-600 border border-red-200 font-bold flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-600">Nama Kelas Baru</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={namaKelasEdit}
+                  onChange={(e) => setNamaKelasEdit(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && simpanEditKelas()}
+                  placeholder="Contoh: Kelas 4B"
+                  className="w-full rounded-2xl border-2 border-sky-100 p-3.5 text-sm font-bold focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Kode kelas ({kelasAktif.kode_kelas}) dan data siswa tidak akan berubah.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  disabled={loadingEdit}
+                  className="flex-1 rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={simpanEditKelas}
+                  disabled={!namaKelasEdit.trim() || loadingEdit}
+                  className="flex-1 rounded-2xl bg-purple-600 hover:bg-purple-700 py-3 text-xs font-black text-white shadow-md shadow-purple-300/40 transition disabled:opacity-50"
+                >
+                  {loadingEdit ? "Menyimpan..." : "Simpan Perubahan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal Konfirmasi Hapus Kelas ── */}
+        {showDeleteModal && kelasAktif && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="w-full max-w-md bg-white rounded-[32px] p-6 space-y-4 shadow-xl border-2 border-red-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-9 w-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg font-bold">
+                    🗑️
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900">Hapus Kelas</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold p-1 text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 space-y-2">
+                <p className="text-xs font-bold text-amber-900">
+                  Apakah Anda yakin ingin menghapus kelas <span className="font-black underline">{kelasAktif.nama_kelas}</span>?
+                </p>
+                {loadingCounts ? (
+                  <p className="text-[11px] text-amber-700 animate-pulse font-medium">
+                    Memeriksa data terkait kelas ini...
+                  </p>
+                ) : (
+                  <div className="space-y-1 text-xs text-amber-800">
+                    <p className="font-bold">Data terkait di kelas ini:</p>
+                    <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                      <li><span className="font-bold">{deleteCounts?.siswa ?? daftarSiswa.length}</span> Siswa terdaftar</li>
+                      <li><span className="font-bold">{deleteCounts?.materi ?? 0}</span> Materi pelajaran</li>
+                      <li><span className="font-bold">{deleteCounts?.sesi ?? 0}</span> Sesi kuis aktif / riwayat</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl bg-red-50/70 border border-red-100 p-3 text-[11px] font-semibold text-red-700 space-y-1">
+                <p className="font-black text-red-800 flex items-center gap-1">
+                  <span>🛡️</span> Perlindungan Data Terisolasi
+                </p>
+                <p>
+                  Kelas akan dinonaktifkan dari dashboard guru dan siswa tidak akan bisa bergabung lagi. Riwayat nilai siswa tetap disimpan secara aman.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={loadingDelete}
+                  className="flex-1 rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={konfirmasiHapusKelas}
+                  disabled={loadingDelete}
+                  className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-3 text-xs font-black text-white shadow-md shadow-red-300/40 transition disabled:opacity-50"
+                >
+                  {loadingDelete ? "Menghapus..." : "Ya, Hapus Kelas"}
                 </button>
               </div>
             </div>

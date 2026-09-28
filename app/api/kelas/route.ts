@@ -24,9 +24,10 @@ export async function GET(req: NextRequest) {
     // Gunakan guruId dari session, bukan dari URL
     const guruId = session.guruId;
 
-    // Ambil hanya kelas milik guru yang sedang login
+    // Ambil hanya kelas milik guru yang sedang login yang masih aktif
     const daftarKelas = await Kelas.find({
       guru_id: guruId,
+      is_active: { $ne: false },
     }).sort({ nama_kelas: 1 });
 
     // Pastikan setiap kelas memiliki kode_kelas
@@ -85,28 +86,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cek apakah guru ini sudah memiliki kelas dengan nama yang sama
-    let kelas = await Kelas.findOne({
+    if (namaKelas.length < 2 || namaKelas.length > 50) {
+      return NextResponse.json(
+        { error: "Nama kelas harus antara 2 hingga 50 karakter" },
+        { status: 400 }
+      );
+    }
+
+    const escapedNama = namaKelas.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Cek apakah guru ini sudah memiliki kelas aktif dengan nama yang sama
+    const existing = await Kelas.findOne({
       guru_id: guruId,
-      nama_kelas: namaKelas,
+      is_active: { $ne: false },
+      nama_kelas: { $regex: `^${escapedNama}$`, $options: "i" },
     });
 
-    // Kalau belum ada, buat kelas baru
-    if (!kelas) {
-      const kodeKelas = await generateKodeKelas(namaKelas);
-
-      kelas = await Kelas.create({
-        guru_id: guruId,
-        nama_kelas: namaKelas,
-        kode_kelas: kodeKelas,
-      });
+    if (existing) {
+      return NextResponse.json(
+        { error: `Kelas dengan nama "${namaKelas}" sudah ada.` },
+        { status: 409 }
+      );
     }
 
-    // Kalau kelas sudah ada tetapi belum punya kode
-    else if (!kelas.kode_kelas) {
-      kelas.kode_kelas = await generateKodeKelas(namaKelas);
-      await kelas.save();
-    }
+    // Buat kelas baru
+    const kodeKelas = await generateKodeKelas(namaKelas);
+
+    const kelas = await Kelas.create({
+      guru_id: guruId,
+      nama_kelas: namaKelas,
+      kode_kelas: kodeKelas,
+      is_active: true,
+    });
 
     return NextResponse.json({
       success: true,

@@ -2,10 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Soal from "@/models/Soal";
 import Materi from "@/models/Materi";
+import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
+
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const session = token ? await verifySessionToken(token) : null;
+
+    if (!session?.guruId) {
+      return NextResponse.json(
+        { error: "Sesi guru tidak valid atau belum login" },
+        { status: 401 }
+      );
+    }
+
     const { materiId } = await req.json();
 
     if (!materiId) {
@@ -15,6 +27,18 @@ export async function POST(req: NextRequest) {
     const materi = await Materi.findById(materiId);
     if (!materi) {
       return NextResponse.json({ error: "Materi tidak ditemukan" }, { status: 404 });
+    }
+
+    // Pastikan materi ini milik guru yang sedang login
+    const isOwner =
+      (materi.guru_id && String(materi.guru_id) === String(session.guruId)) ||
+      (materi.guruEmail && materi.guruEmail.toLowerCase() === session.email.toLowerCase());
+
+    if (!isOwner) {
+      return NextResponse.json(
+        { error: "Materi ini bukan milik Anda" },
+        { status: 403 }
+      );
     }
 
     if (!materi.teksHasilOCR || materi.teksHasilOCR.trim().length < 10) {

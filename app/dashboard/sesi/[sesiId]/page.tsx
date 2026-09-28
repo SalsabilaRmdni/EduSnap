@@ -45,12 +45,12 @@ export default function DetailSesiPage() {
     try {
       const res = await fetch(`/api/sesi/${sesiId}/peserta`);
       const data = await res.json();
-      if (data.status === "ok") {
+      if (res.ok && data.status === "ok") {
         setSesi(data.sesi);
         setStats(data.stats);
         setPesertaList(data.pesertaList || []);
       } else {
-        setErrorMsg(data.message || "Gagal memuat rekap sesi kuis.");
+        setErrorMsg(data.message || data.error || "Gagal memuat rekap sesi kuis.");
       }
     } catch {
       setErrorMsg("Terjadi kesalahan saat memuat data.");

@@ -25,11 +25,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Cari kelas berdasarkan kode_kelas
-    const kelas = await Kelas.findOne({ kode_kelas: cleanKode });
+    // 1. Cari kelas berdasarkan kode_kelas (hanya kelas aktif)
+    const kelas = await Kelas.findOne({ kode_kelas: cleanKode, is_active: { $ne: false } });
     if (!kelas) {
       return NextResponse.json(
-        { status: "error", message: `Kode kelas "${cleanKode}" tidak ditemukan. Silakan tanyakan kode kelas yang tepat ke gurumu.` },
+        { status: "error", message: `Kode kelas "${cleanKode}" tidak ditemukan atau kelas sudah tidak aktif. Silakan tanyakan kode kelas yang tepat ke gurumu.` },
         { status: 404 }
       );
     }
