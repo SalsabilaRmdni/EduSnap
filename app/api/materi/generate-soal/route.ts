@@ -89,7 +89,7 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa markdown)
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "openrouter/free",
+        model: "google/gemini-3.8-flash",
         messages: [{ role: "user", content: prompt }],
       }),
     });
