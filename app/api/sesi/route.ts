@@ -116,12 +116,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Format soal ke skema sesi
+    // Format soal ke skema sesi (termasuk level kesulitan 1, 2, 3)
     const formattedSoal = soalList.map((s) => ({
       pertanyaan: s.pertanyaan,
       tipe: "pilihan_ganda",
       pilihan: s.pilihan,
       jawaban_benar: s.jawabanBenar,
+      level: s.level || 1,
     }));
 
     const sesiBaru = await Sesi.create({
@@ -134,6 +135,8 @@ export async function POST(req: NextRequest) {
       tingkat_kelas: materi.kelas || "SD (Umum)",
       judul_kuis: judulKuis || materi.namaMateri,
       status: "aktif",
+      passing_grade: 70,
+      soal_per_level: 5,
       soal: formattedSoal,
     });
 

@@ -17,8 +17,12 @@ interface KuisSiswaItem {
   status_kuis: string;
   sudah_mengerjakan: boolean;
   nilai: number | null;
-  jumlah_benar: number | null;
+  skor_tertinggi?: number | null;
+  jumlah_benar?: number | null;
   dikerjakan_pada: string | null;
+  level_saat_ini?: number;
+  status_materi?: "sedang_belajar" | "selesai";
+  total_percobaan?: number;
 }
 
 interface SiswaData {
@@ -143,26 +147,28 @@ function SiswaDashboardContent() {
     loadDashboard();
   }, [loadDashboard]);
 
-  // Pisahkan kuis yang belum dikerjakan (Materi Tersedia) dan yang sudah (Riwayat)
-  const kuisBelumDikerjakan = kuisList.filter((k) => !k.sudah_mengerjakan);
+  // Pisahkan kuis yang belum selesai dan riwayat pengerjaan
+  const kuisBelumSelesai = kuisList.filter(
+    (k) => k.status_materi !== "selesai" && k.status_kuis !== "selesai"
+  );
   const kuisSudahDikerjakan = [...kuisList]
-    .filter((k) => k.sudah_mengerjakan)
+    .filter((k) => k.sudah_mengerjakan || (k.total_percobaan ?? 0) > 0)
     .sort((a, b) => {
       const ta = a.dikerjakan_pada ? new Date(a.dikerjakan_pada).getTime() : 0;
       const tb = b.dikerjakan_pada ? new Date(b.dikerjakan_pada).getTime() : 0;
       return tb - ta; // terbaru dulu
     });
 
-  // Hitung persentase progres belajar
+  // Hitung persentase progres belajar (materi yang tuntas lulus level 3)
   const totalKuis = kuisList.length;
-  const selesaiCount = kuisSudahDikerjakan.length;
+  const selesaiCount = kuisList.filter((k) => k.status_materi === "selesai").length;
   const progressPercent = totalKuis > 0 ? Math.round((selesaiCount / totalKuis) * 100) : 0;
 
-  // Rata-rata nilai dari kuis yang sudah dikerjakan
+  // Rata-rata nilai terbaik dari kuis yang sudah dikerjakan
   const rataRataNilai =
     kuisSudahDikerjakan.length > 0
       ? Math.round(
-          kuisSudahDikerjakan.reduce((sum, k) => sum + (k.nilai ?? 0), 0) /
+          kuisSudahDikerjakan.reduce((sum, k) => sum + (k.skor_tertinggi ?? k.nilai ?? 0), 0) /
             kuisSudahDikerjakan.length
         )
       : null;
@@ -246,16 +252,18 @@ function SiswaDashboardContent() {
           </div>
         </div>
 
-        {/* Section Materi Tersedia (belum dikerjakan) */}
+        {/* Section Materi Tersedia (belum tuntas) */}
         <div className="space-y-3">
           <h2 className="text-base sm:text-lg font-black text-slate-900">
             Materi Tersedia
           </h2>
 
-          {kuisBelumDikerjakan.length > 0 ? (
+          {kuisBelumSelesai.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {kuisBelumDikerjakan.map((kuis, idx) => {
+              {kuisBelumSelesai.map((kuis, idx) => {
                 const theme = CARD_THEMES[idx % CARD_THEMES.length];
+                const isStarted = (kuis.total_percobaan ?? 0) > 0;
+                const currentLevel = kuis.level_saat_ini || 1;
                 return (
                   <div
                     key={kuis.id}
@@ -265,24 +273,32 @@ function SiswaDashboardContent() {
                       <div className={`h-12 w-12 rounded-2xl ${theme.iconBg} flex items-center justify-center text-2xl shadow-xs shrink-0`}>
                         {theme.icon}
                       </div>
-                      <div className="truncate space-y-0.5">
+                      <div className="truncate space-y-1">
                         <h3 className={`font-black text-sm sm:text-base ${theme.textColor} truncate`}>
                           {kuis.mata_pelajaran || kuis.judul_kuis}
                         </h3>
                         <p className={`text-xs font-bold ${theme.subtitleColor} truncate`}>
                           {kuis.judul_kuis}
                         </p>
-                        <p className="text-[11px] font-extrabold text-slate-500">
-                          {kuis.total_soal} Soal
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-white/90 text-slate-700 border border-slate-200">
+                            Level {currentLevel} / 3
+                          </span>
+                          {isStarted && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                              Percobaan {(kuis.total_percobaan || 0) + 1}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     <Link
                       href={`/kuis/${kuis.kode_unik}?nama=${encodeURIComponent(siswa?.nama || namaSiswa)}`}
-                      className={`h-9 w-9 rounded-full ${theme.arrowBg} text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm transition active:scale-95`}
+                      className={`h-9 px-3 rounded-full ${theme.arrowBg} text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm transition active:scale-95 gap-1`}
                     >
-                      →
+                      <span>{isStarted ? "Lanjut" : "Mulai"}</span>
+                      <span>→</span>
                     </Link>
                   </div>
                 );
@@ -292,10 +308,10 @@ function SiswaDashboardContent() {
             <div className="rounded-3xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 p-6 flex flex-col items-center text-center gap-2">
               <span className="text-3xl">🎉</span>
               <p className="font-black text-emerald-700 text-sm">
-                Semua materi sudah dikerjakan!
+                Semua materi sudah kamu tuntaskan!
               </p>
               <p className="text-xs text-emerald-600 font-semibold">
-                Cek riwayat di bawah untuk lihat nilai kamu.
+                Selamat! Cek riwayat di bawah untuk melihat pencapaian dan nilai kamu.
               </p>
             </div>
           ) : (
@@ -329,39 +345,61 @@ function SiswaDashboardContent() {
 
           {kuisSudahDikerjakan.length > 0 ? (
             <div className="space-y-2.5">
-              {kuisSudahDikerjakan.map((kuis) => (
-                <div
-                  key={kuis.id}
-                  className="rounded-2xl border-2 border-sky-100 bg-white p-4 flex items-center justify-between gap-3 shadow-xs"
-                >
-                  <div className="truncate space-y-0.5">
-                    <h3 className="font-black text-sm text-slate-900 truncate">
-                      {kuis.mata_pelajaran || kuis.judul_kuis}
-                    </h3>
-                    <p className="text-xs font-bold text-slate-500 truncate">
-                      {kuis.judul_kuis}
-                    </p>
-                    <p className="text-[11px] font-extrabold text-slate-400">
-                      Dikerjakan {formatTanggal(kuis.dikerjakan_pada)} ·{" "}
-                      {kuis.jumlah_benar ?? 0}/{kuis.total_soal} Benar
-                    </p>
-                  </div>
+              {kuisSudahDikerjakan.map((kuis) => {
+                const isLulus = kuis.status_materi === "selesai";
+                const skorDisplay = kuis.skor_tertinggi ?? kuis.nilai ?? 0;
+                return (
+                  <div
+                    key={kuis.id}
+                    className="rounded-2xl border-2 border-sky-100 bg-white p-4 flex items-center justify-between gap-3 shadow-xs"
+                  >
+                    <div className="truncate space-y-1">
+                      <h3 className="font-black text-sm text-slate-900 truncate">
+                        {kuis.mata_pelajaran || kuis.judul_kuis}
+                      </h3>
+                      <p className="text-xs font-bold text-slate-500 truncate">
+                        {kuis.judul_kuis}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        {isLulus ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                            🎉 Materi Selesai (Level 3)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-100 text-sky-800">
+                            Level {kuis.level_saat_ini || 1} / 3 ({kuis.total_percobaan || 1}x coba)
+                          </span>
+                        )}
+                        <span className="text-[11px] font-extrabold text-slate-400">
+                          {formatTanggal(kuis.dikerjakan_pada)}
+                        </span>
+                      </div>
+                    </div>
 
-                  <div className="shrink-0 text-right">
-                    <div
-                      className={`rounded-2xl px-3 py-2 text-lg font-black ${
-                        (kuis.nilai ?? 0) >= 80
-                          ? "bg-emerald-100 text-emerald-700"
-                          : (kuis.nilai ?? 0) >= 60
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-rose-100 text-rose-700"
-                      }`}
-                    >
-                      {kuis.nilai ?? 0}
+                    <div className="shrink-0 flex items-center gap-2">
+                      {!isLulus && kuis.status_kuis !== "selesai" && (
+                        <Link
+                          href={`/kuis/${kuis.kode_unik}?nama=${encodeURIComponent(siswa?.nama || namaSiswa)}`}
+                          className="text-xs font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2.5 py-1.5 rounded-xl transition"
+                        >
+                          Lanjut →
+                        </Link>
+                      )}
+                      <div
+                        className={`rounded-2xl px-3 py-2 text-lg font-black text-center min-w-[50px] ${
+                          skorDisplay >= 80
+                            ? "bg-emerald-100 text-emerald-700"
+                            : skorDisplay >= 60
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-rose-100 text-rose-700"
+                        }`}
+                      >
+                        {skorDisplay}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white p-6 flex flex-col items-center text-center gap-2">

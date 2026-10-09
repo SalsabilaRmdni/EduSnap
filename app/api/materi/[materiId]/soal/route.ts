@@ -116,7 +116,7 @@ export async function PUT(
       );
     }
 
-    const { soalId, pertanyaan, pilihan, jawabanBenar } = await req.json();
+    const { soalId, pertanyaan, pilihan, jawabanBenar, level } = await req.json();
 
     if (!soalId) {
       return NextResponse.json(
@@ -131,6 +131,7 @@ export async function PUT(
         pertanyaan: pertanyaan?.trim(),
         pilihan: Array.isArray(pilihan) ? pilihan : undefined,
         jawabanBenar: jawabanBenar !== undefined ? Number(jawabanBenar) : undefined,
+        level: level !== undefined && [1, 2, 3].includes(Number(level)) ? Number(level) : undefined,
       },
       { new: true }
     );

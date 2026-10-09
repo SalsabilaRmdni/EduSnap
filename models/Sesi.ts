@@ -5,6 +5,7 @@ export interface ISoal {
   tipe?: string;
   pilihan: string[];
   jawaban_benar: string | number;
+  level?: number;
 }
 
 export interface ISesi extends mongoose.Document {
@@ -17,6 +18,8 @@ export interface ISesi extends mongoose.Document {
   tingkat_kelas?: string;
   judul_kuis: string;
   status: "draft" | "aktif" | "selesai";
+  passing_grade?: number;
+  soal_per_level?: number;
   soal: ISoal[];
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +31,7 @@ const SoalSchema = new Schema<ISoal>(
     tipe: { type: String, default: "pilihan_ganda" },
     pilihan: { type: [String], default: [] },
     jawaban_benar: { type: Schema.Types.Mixed, required: true },
+    level: { type: Number, enum: [1, 2, 3], default: 1 },
   },
   { _id: true }
 );
@@ -43,6 +47,8 @@ const SesiSchema = new Schema<ISesi>(
     tingkat_kelas: { type: String, default: "SD" },
     judul_kuis: { type: String, required: true },
     status: { type: String, enum: ["draft", "aktif", "selesai"], default: "aktif" },
+    passing_grade: { type: Number, default: 70 },
+    soal_per_level: { type: Number, default: 5 },
     soal: { type: [SoalSchema], default: [] },
   },
   { timestamps: true }

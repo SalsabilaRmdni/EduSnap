@@ -34,8 +34,16 @@ interface HasilEvaluasi {
   isBenar: boolean;
 }
 
+interface ProgresInfo {
+  level: number;
+  statusMateri: string;
+  percobaanKe: number;
+  skorTertinggi: number;
+  riwayatPercobaan: unknown[];
+}
+
 interface HasilKuis {
-  pesertaId: string;
+  pesertaId?: string;
   namaSiswa: string;
   judulKuis: string;
   mataPelajaran: string;
@@ -43,6 +51,11 @@ interface HasilKuis {
   skor: number;
   jumlahBenar: number;
   totalSoal: number;
+  lulus: boolean;
+  levelSaatIni: number;
+  levelBaru: number;
+  statusMateri: string; // "sedang_belajar" | "selesai"
+  percobaanKe: number;
   detail: HasilEvaluasi[];
 }
 
@@ -82,6 +95,7 @@ function KuisSiswaContent() {
   const kode = (params.kode || "").toUpperCase();
 
   const [sesi, setSesi] = useState<SesiSiswa | null>(null);
+  const [progres, setProgres] = useState<ProgresInfo | null>(null);
   const [namaSiswa, setNamaSiswa] = useState<string>(() => {
     const fromQuery = searchParams.get("nama");
     if (fromQuery) return fromQuery;
@@ -105,10 +119,16 @@ function KuisSiswaContent() {
   const fetchSesi = useCallback(async () => {
     if (!kode) return;
     try {
-      const res = await fetch(`/api/sesi/${kode}`);
+      const url = namaSiswa.trim()
+        ? `/api/sesi/${kode}?nama=${encodeURIComponent(namaSiswa.trim())}`
+        : `/api/sesi/${kode}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (data.status === "ok") {
         setSesi(data.sesi);
+        if (data.progres) {
+          setProgres(data.progres);
+        }
       } else {
         setErrorMsg(data.message || "Kuis tidak ditemukan.");
       }
@@ -117,7 +137,7 @@ function KuisSiswaContent() {
     } finally {
       setLoading(false);
     }
-  }, [kode]);
+  }, [kode, namaSiswa]);
 
   useEffect(() => {
     fetchSesi();
@@ -207,12 +227,23 @@ function KuisSiswaContent() {
     );
   }
 
+  const handleCobaLagiAtauLanjut = () => {
+    setHasil(null);
+    setJawaban({});
+    setCurrentIdx(0);
+    setLoading(true);
+    fetchSesi();
+  };
+
   // ==========================================
-  // SCREEN 4: HASIL SOAL (Mengikuti Gambar Referensi)
+  // SCREEN 4: HASIL SOAL ADAPTIF (3 KONDISI)
   // ==========================================
   if (hasil) {
     const totalSoal = hasil.totalSoal;
     const salahCount = totalSoal - hasil.jumlahBenar;
+    const isMateriSelesai = hasil.lulus && hasil.statusMateri === "selesai";
+    const isLulusLevel = hasil.lulus && !isMateriSelesai;
+    const isGagal = !hasil.lulus;
 
     return (
       <main className="min-h-screen bg-gradient-to-b from-sky-100 via-sky-50 to-emerald-50 p-4 sm:p-6 flex flex-col justify-between items-center relative overflow-hidden">
@@ -222,30 +253,63 @@ function KuisSiswaContent() {
         <div className="absolute top-28 left-16 text-pink-400 text-2xl">✨</div>
         <div className="absolute top-24 right-20 text-sky-400 text-2xl">✨</div>
 
-        <div className="w-full max-w-sm sm:max-w-md mx-auto my-auto z-10 pt-4 space-y-5 text-center">
-          {/* Mascot Book Holding Star */}
+        <div className="w-full max-w-sm sm:max-w-md mx-auto my-auto z-10 pt-4 space-y-4 text-center">
+          {/* Mascot */}
           <div className="flex justify-center -mb-2">
-            <MascotBook className="w-36 h-36 sm:w-44 sm:h-44" />
+            <MascotBook className="w-32 h-32 sm:w-40 sm:h-40" />
           </div>
 
-          {/* Heading */}
+          {/* Heading Dinamis Sesuai Hasil */}
           <div className="space-y-1">
-            <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Hebat, {hasil.namaSiswa}!
-            </h1>
-            <p className="text-xs sm:text-sm font-bold text-slate-500">
-              Kamu sudah menyelesaikan soal!
-            </p>
+            {isMateriSelesai ? (
+              <>
+                <span className="inline-block px-3 py-1 bg-amber-100 text-amber-800 text-xs font-black rounded-full mb-1">
+                  🏆 MATERI TUNTAS 100%
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Luar Biasa, {hasil.namaSiswa}! 🎉
+                </h1>
+                <p className="text-xs sm:text-sm font-bold text-slate-500">
+                  Kamu telah menyelesaikan seluruh level materi ini dengan gemilang!
+                </p>
+              </>
+            ) : isLulusLevel ? (
+              <>
+                <span className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-full mb-1">
+                  ✓ LULUS LEVEL {hasil.levelSaatIni}
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Hebat, {hasil.namaSiswa}! 🚀
+                </h1>
+                <p className="text-xs sm:text-sm font-bold text-slate-500">
+                  Nilaimu memenuhi KKM 70. Kamu berhak naik ke Level {hasil.levelBaru}!
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="inline-block px-3 py-1 bg-amber-100 text-amber-800 text-xs font-black rounded-full mb-1">
+                  BELUM LULUS KKM 70
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Ayo Semangat, {hasil.namaSiswa}! 💪
+                </h1>
+                <p className="text-xs sm:text-sm font-bold text-slate-500">
+                  Minimal 4 soal benar (nilai 80) untuk lulus. Jangan menyerah, yuk coba lagi dengan soal baru!
+                </p>
+              </>
+            )}
           </div>
 
-          {/* Score Card: Pastel Yellow with Star */}
-          <div className="rounded-[32px] border-2 border-amber-300 bg-[#FEF9C3] p-6 shadow-sm flex items-center justify-center gap-6">
-            <span className="text-5xl">⭐</span>
+          {/* Score Card */}
+          <div className={`rounded-[28px] border-2 p-5 shadow-sm flex items-center justify-center gap-5 ${
+            isGagal ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"
+          }`}>
+            <span className="text-5xl">{isGagal ? "📚" : "⭐"}</span>
             <div className="text-left">
-              <span className="text-xs font-bold text-amber-800 uppercase tracking-wider block">
-                Nilai Kamu
+              <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider block">
+                Nilai Kamu (Percobaan ke-{hasil.percobaanKe})
               </span>
-              <span className="text-5xl sm:text-6xl font-black text-slate-900 tracking-tight">
+              <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight">
                 {hasil.skor}
               </span>
             </div>
@@ -253,36 +317,56 @@ function KuisSiswaContent() {
 
           {/* Jawaban Benar & Salah Badges */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border-2 border-emerald-200 bg-white p-3.5 flex items-center justify-between shadow-xs">
+            <div className="rounded-2xl border-2 border-emerald-200 bg-white p-3 flex items-center justify-between shadow-xs">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-6 rounded-full bg-emerald-500 text-white font-black text-xs flex items-center justify-center">
                   ✓
                 </span>
-                <span className="text-xs font-extrabold text-slate-700">Jawaban Benar</span>
+                <span className="text-xs font-extrabold text-slate-700">Benar</span>
               </div>
-              <span className="text-xl font-black text-emerald-600">{hasil.jumlahBenar}</span>
+              <span className="text-lg font-black text-emerald-600">{hasil.jumlahBenar} / {totalSoal}</span>
             </div>
 
-            <div className="rounded-2xl border-2 border-red-200 bg-white p-3.5 flex items-center justify-between shadow-xs">
+            <div className="rounded-2xl border-2 border-red-200 bg-white p-3 flex items-center justify-between shadow-xs">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-6 rounded-full bg-red-500 text-white font-black text-xs flex items-center justify-center">
                   ✕
                 </span>
-                <span className="text-xs font-extrabold text-slate-700">Jawaban Salah</span>
+                <span className="text-xs font-extrabold text-slate-700">Salah</span>
               </div>
-              <span className="text-xl font-black text-red-500">{salahCount}</span>
+              <span className="text-lg font-black text-red-500">{salahCount}</span>
             </div>
           </div>
 
-          {/* Button Kembali ke Beranda */}
-          <div className="pt-2">
-            <Link
-              href="/siswa"
-              className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-4 px-6 text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition"
+          {/* Action Buttons Dinamis */}
+          <div className="pt-2 space-y-2">
+            {isGagal && (
+              <button
+                onClick={handleCobaLagiAtauLanjut}
+                className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition"
+              >
+                <span>🔄</span>
+                <span>Ulangi Level {hasil.levelSaatIni} (Soal Baru)</span>
+              </button>
+            )}
+
+            {isLulusLevel && (
+              <button
+                onClick={handleCobaLagiAtauLanjut}
+                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-white shadow-md shadow-emerald-300/40 flex items-center justify-center gap-2 transition"
+              >
+                <span>🚀</span>
+                <span>Lanjut ke Level {hasil.levelBaru}</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => router.push("/siswa")}
+              className="w-full rounded-2xl bg-white border-2 border-slate-200 hover:bg-slate-50 active:scale-98 py-3 px-6 text-xs sm:text-sm font-black text-slate-700 transition flex items-center justify-center gap-2"
             >
               <span>🏠</span>
-              <span>Kembali ke Beranda</span>
-            </Link>
+              <span>Kembali ke Beranda Belajar</span>
+            </button>
           </div>
         </div>
 
@@ -302,11 +386,29 @@ function KuisSiswaContent() {
   const progressPercent = totalSoal > 0 ? Math.round(((currentIdx + 1) / totalSoal) * 100) : 0;
   const selectedOpsi = currentSoal ? jawaban[currentIdx] : undefined;
 
+  const levelAktif = progres?.level || 1;
+  const levelLabels = { 1: "Level 1 (Mudah)", 2: "Level 2 (Sedang)", 3: "Level 3 (Sulit)" } as const;
+
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col justify-between items-center p-4 sm:p-6 pb-12 relative overflow-hidden">
       <div className="w-full max-w-md mx-auto z-10 space-y-4">
         {/* Top Header Bar */}
         <div className="space-y-2">
+          {/* Badge Level & Target KKM */}
+          <div className="flex items-center justify-between text-xs font-black">
+            <span className={`px-2.5 py-1 rounded-xl border ${
+              levelAktif === 1 ? "bg-sky-50 text-sky-700 border-sky-200" :
+              levelAktif === 2 ? "bg-amber-50 text-amber-700 border-amber-200" :
+              "bg-purple-50 text-purple-700 border-purple-200"
+            }`}>
+              {levelLabels[levelAktif as 1 | 2 | 3] || `Level ${levelAktif}`}
+            </span>
+
+            <span className="text-slate-500 font-bold">
+              Percobaan ke-{progres?.percobaanKe || 1} • KKM: 70
+            </span>
+          </div>
+
           <div className="flex items-center justify-between">
             <button
               onClick={() => router.push("/siswa")}

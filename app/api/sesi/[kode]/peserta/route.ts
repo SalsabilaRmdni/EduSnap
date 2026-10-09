@@ -23,9 +23,12 @@ export async function GET(
 
     const { kode } = await context.params;
 
-    const sesi = await Sesi.findOne({
-      kode_unik: kode.trim().toUpperCase(),
-    });
+    const cleanKode = kode.trim();
+    const sesi = await Sesi.findOne(
+      cleanKode.length === 24 && /^[0-9a-fA-F]{24}$/.test(cleanKode)
+        ? { $or: [{ kode_unik: cleanKode.toUpperCase() }, { _id: cleanKode }] }
+        : { kode_unik: cleanKode.toUpperCase() }
+    );
 
     if (!sesi) {
       return NextResponse.json(
@@ -48,10 +51,44 @@ export async function GET(
 
     const pesertaList = await Peserta.find({ sesi_id: sesi._id }).sort({ createdAt: -1 });
 
-    const totalPeserta = pesertaList.length;
+    // Agregasi per siswa (Catatan User #4: gabungkan percobaan per siswa)
+    const mapSiswa = new Map<string, {
+      nama_siswa: string;
+      siswa_id?: string;
+      skor_tertinggi: number;
+      level_terakhir: number;
+      total_percobaan: number;
+      lulus_terakhir: boolean;
+      terakhir_mengerjakan: Date;
+      riwayat: typeof pesertaList;
+    }>();
+
+    for (const p of pesertaList) {
+      const key = (p.nama_siswa || "").trim().toLowerCase();
+      if (!mapSiswa.has(key)) {
+        mapSiswa.set(key, {
+          nama_siswa: p.nama_siswa,
+          siswa_id: p.siswa_id ? String(p.siswa_id) : undefined,
+          skor_tertinggi: p.skor || 0,
+          level_terakhir: p.level || 1,
+          total_percobaan: 1,
+          lulus_terakhir: !!p.lulus,
+          terakhir_mengerjakan: p.createdAt,
+          riwayat: [p],
+        });
+      } else {
+        const item = mapSiswa.get(key)!;
+        item.total_percobaan += 1;
+        item.skor_tertinggi = Math.max(item.skor_tertinggi, p.skor || 0);
+        item.riwayat.push(p);
+      }
+    }
+
+    const rekapSiswa = Array.from(mapSiswa.values());
+    const totalSiswaUnik = rekapSiswa.length;
     const rataRataSkor =
-      totalPeserta > 0
-        ? Math.round(pesertaList.reduce((acc, p) => acc + (p.skor || 0), 0) / totalPeserta)
+      totalSiswaUnik > 0
+        ? Math.round(rekapSiswa.reduce((acc, s) => acc + s.skor_tertinggi, 0) / totalSiswaUnik)
         : 0;
 
     return NextResponse.json({
@@ -64,12 +101,15 @@ export async function GET(
         tingkat_kelas: sesi.tingkat_kelas,
         status: sesi.status,
         totalSoal: sesi.soal.length,
+        passing_grade: sesi.passing_grade || 70,
         createdAt: sesi.createdAt,
       },
       stats: {
-        totalPeserta,
+        totalPeserta: totalSiswaUnik,
+        totalSubmit: pesertaList.length,
         rataRataSkor,
       },
+      rekapSiswa,
       pesertaList,
     });
   } catch (error) {

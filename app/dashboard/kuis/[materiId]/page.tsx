@@ -9,6 +9,7 @@ type Soal = {
   pertanyaan: string;
   pilihan: string[];
   jawabanBenar: number;
+  level?: number;
 };
 
 type MateriInfo = {
@@ -44,6 +45,7 @@ export default function KuisPage() {
   const [daftarKelas, setDaftarKelas] = useState<KelasOption[]>([]);
   const [kelasTerpilih, setKelasTerpilih] = useState<string>("");
   const [loadingKelas, setLoadingKelas] = useState(true);
+  const [selectedLevelFilter, setSelectedLevelFilter] = useState<number | "all">("all");
 
   const loadData = useCallback(async () => {
     if (!materiId) return;
@@ -128,6 +130,23 @@ export default function KuisPage() {
     }
   };
 
+  const handleUbahLevel = async (soalId: string, levelBaru: number) => {
+    try {
+      const res = await fetch(`/api/materi/${materiId}/soal`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soalId, level: levelBaru }),
+      });
+      if (res.ok) {
+        setSoalList((prev) =>
+          prev.map((s) => (s._id === soalId ? { ...s, level: levelBaru } : s))
+        );
+      }
+    } catch {
+      setErrorMsg("Gagal memperbarui level butir soal");
+    }
+  };
+
   const handleHapusSoal = async (soalId: string) => {
     if (!confirm("Hapus butir soal ini?")) return;
     try {
@@ -193,6 +212,14 @@ export default function KuisPage() {
       </main>
     );
   }
+  const countL1 = soalList.filter((s) => (s.level || 1) === 1).length;
+  const countL2 = soalList.filter((s) => (s.level || 1) === 2).length;
+  const countL3 = soalList.filter((s) => (s.level || 1) === 3).length;
+
+  const filteredSoalList =
+    selectedLevelFilter === "all"
+      ? soalList
+      : soalList.filter((s) => (s.level || 1) === selectedLevelFilter);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -346,83 +373,210 @@ export default function KuisPage() {
           </div>
         )}
 
-        {/* Daftar Soal */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-slate-900">
-              Daftar Butir Soal ({soalList.length} Soal)
-            </h3>
-            <span className="text-xs text-slate-400">💡 Klik opsi jawaban untuk mengubah kunci</span>
+        {/* Bank Soal Adaptif Header & Ringkasan */}
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-base font-black text-slate-900">
+                Bank Soal Adaptif ({soalList.length} Butir Soal)
+              </h3>
+              <p className="text-xs text-slate-400">
+                Setiap level membutuhkan bank soal untuk diacak (5 soal per sesi percobaan siswa).
+              </p>
+            </div>
+            <span className="text-xs text-slate-400">💡 Klik opsi jawaban untuk ubah kunci</span>
           </div>
 
-          {soalList.length === 0 ? (
+          {/* Statistik Level */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-2xl bg-emerald-50/70 border border-emerald-200 p-3 text-center space-y-0.5">
+              <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider block">
+                Level 1: Mudah
+              </span>
+              <span className="text-xl font-black text-emerald-900">{countL1} Butir</span>
+              <span className="text-[10px] text-emerald-600 block">
+                {countL1 >= 10 ? "✅ Bank Ideal" : countL1 >= 5 ? "⚡ Cukup" : "⚠️ Butuh Min. 5"}
+              </span>
+            </div>
+
+            <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-3 text-center space-y-0.5">
+              <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider block">
+                Level 2: Sedang
+              </span>
+              <span className="text-xl font-black text-amber-900">{countL2} Butir</span>
+              <span className="text-[10px] text-amber-600 block">
+                {countL2 >= 10 ? "✅ Bank Ideal" : countL2 >= 5 ? "⚡ Cukup" : "⚠️ Butuh Min. 5"}
+              </span>
+            </div>
+
+            <div className="rounded-2xl bg-rose-50/70 border border-rose-200 p-3 text-center space-y-0.5">
+              <span className="text-[10px] font-extrabold text-rose-700 uppercase tracking-wider block">
+                Level 3: Sulit
+              </span>
+              <span className="text-xl font-black text-rose-900">{countL3} Butir</span>
+              <span className="text-[10px] text-rose-600 block">
+                {countL3 >= 10 ? "✅ Bank Ideal" : countL3 >= 5 ? "⚡ Cukup" : "⚠️ Butuh Min. 5"}
+              </span>
+            </div>
+          </div>
+
+          {/* Filter Level Tabs */}
+          {soalList.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setSelectedLevelFilter("all")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedLevelFilter === "all"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Semua Level ({soalList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedLevelFilter(1)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedLevelFilter === 1
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                }`}
+              >
+                Level 1: Mudah ({countL1})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedLevelFilter(2)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedLevelFilter === 2
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-amber-50 text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                Level 2: Sedang ({countL2})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedLevelFilter(3)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedLevelFilter === 3
+                    ? "bg-rose-600 text-white shadow-xs"
+                    : "bg-rose-50 text-rose-800 hover:bg-rose-100"
+                }`}
+              >
+                Level 3: Sulit ({countL3})
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Daftar Soal */}
+        <div className="space-y-4">
+          {filteredSoalList.length === 0 ? (
             <div className="rounded-3xl border-2 border-dashed border-slate-200 bg-white p-12 text-center space-y-2">
               <span className="text-4xl">📝</span>
-              <p className="text-sm font-bold text-slate-700">Belum ada soal untuk materi ini</p>
-              <p className="text-xs text-slate-400">Klik tombol &ldquo;Generate Soal dengan AI&rdquo; di atas untuk menyusun butir soal otomatis.</p>
+              <p className="text-sm font-bold text-slate-700">
+                {soalList.length === 0
+                  ? "Belum ada soal untuk materi ini"
+                  : `Tidak ada soal pada Level ${selectedLevelFilter}`}
+              </p>
+              <p className="text-xs text-slate-400">
+                {soalList.length === 0
+                  ? "Klik tombol \"Generate Soal dengan AI\" di atas untuk menyusun butir soal otomatis per level."
+                  : "Ubah filter di atas atau generate soal baru."}
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {soalList.map((soal, idx) => (
-                <div
-                  key={soal._id || idx}
-                  className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4 relative group"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <span className="h-7 w-7 rounded-lg bg-indigo-100 text-indigo-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <p className="font-bold text-slate-900 text-sm sm:text-base leading-relaxed">
-                        {soal.pertanyaan}
-                      </p>
+              {filteredSoalList.map((soal, idx) => {
+                const currentLevel = soal.level || 1;
+                return (
+                  <div
+                    key={soal._id || idx}
+                    className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm space-y-4 relative group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <span className="h-7 w-7 rounded-lg bg-indigo-100 text-indigo-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-black ${
+                                currentLevel === 3
+                                  ? "bg-rose-100 text-rose-800"
+                                  : currentLevel === 2
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}
+                            >
+                              Level {currentLevel}: {currentLevel === 3 ? "Sulit" : currentLevel === 2 ? "Sedang" : "Mudah"}
+                            </span>
+                            <select
+                              value={currentLevel}
+                              onChange={(e) => handleUbahLevel(soal._id, Number(e.target.value))}
+                              className="text-[10px] font-bold border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 bg-white hover:border-indigo-400 cursor-pointer"
+                              title="Pindah level kesulitan butir soal ini"
+                            >
+                              <option value={1}>Set Level 1 (Mudah)</option>
+                              <option value={2}>Set Level 2 (Sedang)</option>
+                              <option value={3}>Set Level 3 (Sulit)</option>
+                            </select>
+                          </div>
+                          <p className="font-bold text-slate-900 text-sm sm:text-base leading-relaxed">
+                            {soal.pertanyaan}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleHapusSoal(soal._id)}
+                        className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg text-xs font-bold transition shrink-0"
+                        title="Hapus butir soal ini"
+                      >
+                        🗑️
+                      </button>
                     </div>
 
-                    <button
-                      onClick={() => handleHapusSoal(soal._id)}
-                      className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg text-xs font-bold transition shrink-0"
-                      title="Hapus butir soal ini"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pl-10">
-                    {soal.pilihan.map((opsi, oIdx) => {
-                      const isCorrect = Number(soal.jawabanBenar) === oIdx;
-                      const label = String.fromCharCode(65 + oIdx);
-                      return (
-                        <button
-                          key={oIdx}
-                          type="button"
-                          onClick={() => handleUbahKunci(soal._id, oIdx)}
-                          className={`rounded-2xl border p-3 flex items-center gap-3 text-xs sm:text-sm font-medium transition text-left cursor-pointer hover:border-emerald-300 ${
-                            isCorrect
-                              ? "border-emerald-400 bg-emerald-50/70 text-emerald-900 font-bold ring-2 ring-emerald-200"
-                              : "border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          <span
-                            className={`h-6 w-6 rounded-lg text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pl-10">
+                      {soal.pilihan.map((opsi, oIdx) => {
+                        const isCorrect = Number(soal.jawabanBenar) === oIdx;
+                        const label = String.fromCharCode(65 + oIdx);
+                        return (
+                          <button
+                            key={oIdx}
+                            type="button"
+                            onClick={() => handleUbahKunci(soal._id, oIdx)}
+                            className={`rounded-2xl border p-3 flex items-center gap-3 text-xs sm:text-sm font-medium transition text-left cursor-pointer hover:border-emerald-300 ${
                               isCorrect
-                                ? "bg-emerald-600 text-white"
-                                : "bg-slate-200 text-slate-600"
+                                ? "border-emerald-400 bg-emerald-50/70 text-emerald-900 font-bold ring-2 ring-emerald-200"
+                                : "border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-100"
                             }`}
                           >
-                            {label}
-                          </span>
-                          <span className="truncate flex-1">{opsi}</span>
-                          {isCorrect && (
-                            <span className="ml-auto text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded shrink-0">
-                              Kunci ✓
+                            <span
+                              className={`h-6 w-6 rounded-lg text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                                isCorrect
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-slate-200 text-slate-600"
+                              }`}
+                            >
+                              {label}
                             </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                            <span className="truncate flex-1">{opsi}</span>
+                            {isCorrect && (
+                              <span className="ml-auto text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded shrink-0">
+                                Kunci ✓
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -4,6 +4,7 @@ import Kelas from "@/models/Kelas";
 import Siswa from "@/models/Siswa";
 import Sesi from "@/models/Sesi";
 import Peserta from "@/models/Peserta";
+import ProgresSiswa from "@/models/ProgresSiswa";
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,10 +52,30 @@ export async function GET(req: NextRequest) {
     // 4. Periksa hasil pengerjaan kuis untuk siswa ini
     const kuisWithStatus = await Promise.all(
       sesiList.map(async (sesi) => {
-        const pengerjaan = await Peserta.findOne({
+        const progres = await ProgresSiswa.findOne({
+          sesi_id: sesi._id,
+          $or: [
+            { siswa_id: siswa._id },
+            { nama_ternormalisasi: (siswa.nama || "").trim().toLowerCase() },
+          ],
+        });
+
+        const pengerjaanList = await Peserta.find({
           sesi_id: sesi._id,
           siswa_id: siswa._id,
-        });
+        }).sort({ createdAt: -1 });
+
+        const skorTertinggi = progres
+          ? progres.skor_tertinggi
+          : pengerjaanList.length > 0
+          ? Math.max(...pengerjaanList.map((p) => p.skor || 0))
+          : null;
+
+        const levelSaatIni = progres ? progres.level_saat_ini : 1;
+        const statusMateri = progres ? progres.status_materi : "sedang_belajar";
+        const totalPercobaan = progres
+          ? progres.riwayat_percobaan?.length || 0
+          : pengerjaanList.length;
 
         return {
           id: sesi._id,
@@ -64,10 +85,13 @@ export async function GET(req: NextRequest) {
           tingkat_kelas: sesi.tingkat_kelas,
           total_soal: sesi.soal ? sesi.soal.length : 0,
           status_kuis: sesi.status,
-          sudah_mengerjakan: !!pengerjaan,
-          nilai: pengerjaan ? pengerjaan.skor : null,
-          jumlah_benar: pengerjaan ? pengerjaan.jumlah_benar : null,
-          dikerjakan_pada: pengerjaan ? pengerjaan.createdAt : null,
+          sudah_mengerjakan: totalPercobaan > 0,
+          nilai: skorTertinggi,
+          skor_tertinggi: skorTertinggi,
+          level_saat_ini: levelSaatIni,
+          status_materi: statusMateri,
+          total_percobaan: totalPercobaan,
+          dikerjakan_pada: pengerjaanList[0] ? pengerjaanList[0].createdAt : null,
         };
       })
     );
