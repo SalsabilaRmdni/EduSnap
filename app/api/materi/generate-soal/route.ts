@@ -32,6 +32,169 @@ const LEVEL_CONFIGS = {
   },
 } as const;
 
+// Helper parser cerdas & kebal format untuk mengekstrak array soal dari respon model AI apapun
+function extractSoalListFromAI(rawContent: string): unknown[] {
+  if (!rawContent || typeof rawContent !== "string") return [];
+
+  // 1. Hilangkan tag penalaran reasoning model (misal <think>...</think> pada DeepSeek)
+  let cleanText = rawContent
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .trim();
+
+  // 2. Hilangkan pembungkus markdown code fence (```json ... ```)
+  cleanText = cleanText.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+
+  // 3. Coba parse langsung keseluruhan teks
+  try {
+    const direct = JSON.parse(cleanText);
+    if (Array.isArray(direct)) return direct;
+    if (direct && typeof direct === "object") {
+      for (const val of Object.values(direct)) {
+        if (Array.isArray(val) && val.length > 0) return val;
+      }
+    }
+  } catch {
+    // Lanjut ke metode berikutnya
+  }
+
+  // 4. Cari array [ ... ] terluar
+  const firstBracket = cleanText.indexOf("[");
+  const lastBracket = cleanText.lastIndexOf("]");
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    const arraySlice = cleanText.slice(firstBracket, lastBracket + 1);
+    try {
+      const parsed = JSON.parse(arraySlice);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      try {
+        const sanitized = arraySlice.replace(/,\s*([\]}])/g, "$1");
+        const parsed = JSON.parse(sanitized);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // Lanjut ke object
+      }
+    }
+  }
+
+  // 5. Cari object { ... } terluar jika dibungkus { "soal": [...] }
+  const firstBrace = cleanText.indexOf("{");
+  const lastBrace = cleanText.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const objSlice = cleanText.slice(firstBrace, lastBrace + 1);
+    try {
+      const sanitized = objSlice.replace(/,\s*([\]}])/g, "$1");
+      const parsed = JSON.parse(sanitized);
+      if (parsed && typeof parsed === "object") {
+        for (const val of Object.values(parsed)) {
+          if (Array.isArray(val) && val.length > 0) return val;
+        }
+      }
+    } catch {
+      // Lanjut ke scanning blok per butir
+    }
+  }
+
+  // 6. Ekstraksi per butir objek mandiri (balanced braces scanner) jika format terputus
+  const recovered: unknown[] = [];
+  let depth = 0;
+  let startIdx = -1;
+
+  for (let i = 0; i < cleanText.length; i++) {
+    const char = cleanText[i];
+    if (char === "{") {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (char === "}") {
+      depth--;
+      if (depth === 0 && startIdx !== -1) {
+        const candidate = cleanText.slice(startIdx, i + 1);
+        try {
+          const item = JSON.parse(candidate.replace(/,\s*([\]}])/g, "$1"));
+          if (
+            item &&
+            typeof item === "object" &&
+            ("pertanyaan" in item || "question" in item || "soal" in item || "options" in item || "pilihan" in item)
+          ) {
+            recovered.push(item);
+          }
+        } catch {
+          // Lewati blok yang tidak valid
+        }
+        startIdx = -1;
+      }
+    }
+  }
+
+  return recovered;
+}
+
+// Helper normalisasi butir soal AI ke format SoalAIItem
+function normalizeSoalItem(raw: unknown, level: number): SoalAIItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+
+  // Ambil teks pertanyaan
+  const rawPertanyaan =
+    item.pertanyaan ?? item.question ?? item.soal ?? item.tanya ?? item.teks;
+  if (typeof rawPertanyaan !== "string" || rawPertanyaan.trim().length < 3) {
+    return null;
+  }
+
+  // Ambil pilihan
+  let rawPilihan = item.pilihan ?? item.options ?? item.choices ?? item.opsi;
+  if (!Array.isArray(rawPilihan) && rawPilihan && typeof rawPilihan === "object") {
+    rawPilihan = Object.values(rawPilihan);
+  }
+
+  if (!Array.isArray(rawPilihan) || rawPilihan.length < 2) {
+    return null;
+  }
+
+  const pilihan = rawPilihan.map((p) => String(p).trim()).filter(Boolean);
+  if (pilihan.length < 2) return null;
+
+  // Ambil kunci jawaban
+  const rawKunci =
+    item.jawabanBenar ??
+    item.jawaban_benar ??
+    item.kunci ??
+    item.kunciJawaban ??
+    item.correct_answer ??
+    item.answer;
+
+  let jawabanBenar = 0;
+  if (typeof rawKunci === "number" && rawKunci >= 0 && rawKunci < pilihan.length) {
+    jawabanBenar = rawKunci;
+  } else if (typeof rawKunci === "string") {
+    const upper = rawKunci.trim().toUpperCase();
+    if (upper === "A") jawabanBenar = 0;
+    else if (upper === "B") jawabanBenar = 1;
+    else if (upper === "C") jawabanBenar = 2;
+    else if (upper === "D") jawabanBenar = 3;
+    else {
+      const num = parseInt(upper, 10);
+      if (!isNaN(num) && num >= 0 && num < pilihan.length) {
+        jawabanBenar = num;
+      } else {
+        const found = pilihan.findIndex((p) => p.toLowerCase() === rawKunci.trim().toLowerCase());
+        if (found !== -1) jawabanBenar = found;
+      }
+    }
+  }
+
+  const rawPenjelasan =
+    item.penjelasan ?? item.explanation ?? item.pembahasan ?? item.alasan;
+
+  return {
+    pertanyaan: rawPertanyaan.trim(),
+    pilihan,
+    jawabanBenar,
+    level,
+    penjelasan: typeof rawPenjelasan === "string" ? rawPenjelasan.trim() : undefined,
+  };
+}
+
 // Helper untuk memanggil AI khusus per level dengan mekanisme retry mandiri per level
 async function requestLevelSoal(
   level: 1 | 2 | 3,
@@ -42,7 +205,7 @@ async function requestLevelSoal(
   teksOCR: string,
   apiKey: string,
   modelName: string,
-  maxRetry = 2
+  maxRetry = 3
 ): Promise<SoalAIItem[]> {
   const { nama, panduan } = LEVEL_CONFIGS[level];
 
@@ -76,23 +239,32 @@ Ketentuan Khusus:
 2. Setiap soal memiliki tepat 4 pilihan jawaban yang masuk akal bagi anak SD.
 3. Setiap soal memiliki tepat 1 kunci jawaban berupa indeks angka (0, 1, 2, atau 3).
 4. Setiap soal memiliki penjelasan/pembahasan singkat yang mendidik dan mudah dipahami anak SD.
-5. Pertanyaan dan pilihan harus dalam Bahasa Indonesia yang baik dan bebas dari kesalahan ketik OCR.
-6. Pertanyaan dan pilihan harus ringkas, lugas, dan padat (hindari paragraf bacaan cerita yang terlalu panjang agar respon lengkap).
+5. Pertanyaan dan pilihan harus ringkas, lugas, dan padat.
 
-Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar, tanpa markdown):
-[
-  {
-    "pertanyaan": "Pertanyaan soal...",
-    "pilihan": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],
-    "jawabanBenar": 0,
-    "penjelasan": "Penjelasan ringkas mengapa jawaban ini benar."
-  }
-]`;
+Balas HANYA dengan JSON valid seperti struktur berikut (tanpa pembuka/penutup dan tanpa markdown):
+{
+  "soal": [
+    {
+      "pertanyaan": "Pertanyaan soal...",
+      "pilihan": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],
+      "jawabanBenar": 0,
+      "penjelasan": "Penjelasan ringkas mengapa jawaban ini benar."
+    }
+  ]
+}`;
 
-  let activeModel = modelName;
+  // Daftar prioritas model: model pilihan -> model gratis Llama 3.3 70B -> auto free router
+  const candidateModels = [
+    modelName,
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "openrouter/free",
+  ];
+
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxRetry; attempt++) {
+    const activeModel = candidateModels[Math.min(attempt - 1, candidateModels.length - 1)];
+
     try {
       const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -102,114 +274,52 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
         },
         body: JSON.stringify({
           model: activeModel,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.7,
+          messages: [
+            {
+              role: "system",
+              content: "Kamu adalah AI guru penyusun soal evaluasi kuis sekolah dasar. Balas HANYA dengan format JSON murni tanpa markdown.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.3,
           max_tokens: 3500,
         }),
       });
 
       if (!aiRes.ok) {
         const errText = await aiRes.text();
+        console.warn(`[GenerateSoal] Attempt ${attempt} dengan model ${activeModel} gagal (HTTP ${aiRes.status}):`, errText.slice(0, 200));
 
-        // Jika terkena HTTP 402 (Payment Required / in_flight_budget_exhausted)
         if (aiRes.status === 402) {
-          if (activeModel !== "openrouter/free") {
-            console.warn(`[GenerateSoal] Model ${activeModel} terkena limit kredit (HTTP 402). Mencoba beralih ke model gratis (openrouter/free)...`);
-            activeModel = "openrouter/free";
-            await new Promise((r) => setTimeout(r, 1500));
-            continue;
-          }
-          throw new Error(
-            "Saldo kredit OpenRouter tidak mencukupi atau kuota pemanggilan bersamaan penuh. Silakan cek saldo kredit di https://openrouter.ai/settings/credits atau gunakan API key dengan kredit aktif."
-          );
+          // Lanjut ke percobaan berikutnya yang menggunakan model gratis
+          lastError = new Error("Saldo kredit OpenRouter terbatas (HTTP 402)");
+          await new Promise((r) => setTimeout(r, 1200));
+          continue;
         }
 
-        let pesanError = `OpenRouter HTTP ${aiRes.status}: ${errText}`;
-        try {
-          const parsed = JSON.parse(errText);
-          if (parsed?.error?.message) {
-            pesanError = parsed.error.message;
-          }
-        } catch {
-          // ignore
-        }
-
-        throw new Error(pesanError);
+        throw new Error(`OpenRouter HTTP ${aiRes.status}: ${errText.slice(0, 120)}`);
       }
 
       const aiData = await aiRes.json();
       const rawContent: string = aiData.choices?.[0]?.message?.content ?? "";
 
-      // 1. Coba parse array utuh
-      const jsonMatch = rawContent.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      let parsed: unknown = null;
-      if (jsonMatch) {
-        try {
-          parsed = JSON.parse(jsonMatch[0]);
-        } catch {
-          try {
-            const sanitized = jsonMatch[0].replace(/,\s*([\]}])/g, "$1");
-            parsed = JSON.parse(sanitized);
-          } catch {
-            parsed = null;
-          }
-        }
-      }
-
-      // 2. Jika parse array utuh belum berhasil, pulihkan dari objek-objek pertanyaan yang sudah terbentuk
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        const objectMatches = rawContent.match(/\{[\s\S]*?"pertanyaan"[\s\S]*?"pilihan"[\s\S]*?"jawabanBenar"[\s\S]*?\}/g);
-        if (objectMatches && objectMatches.length > 0) {
-          const recovered: Array<{ pertanyaan: string; pilihan: string[]; jawabanBenar: number; penjelasan?: string }> = [];
-          for (const objStr of objectMatches) {
-            try {
-              const obj = JSON.parse(objStr.replace(/,\s*([\]}])/g, "$1"));
-              if (obj.pertanyaan && Array.isArray(obj.pilihan)) {
-                recovered.push(obj);
-              }
-            } catch {
-              // Lewati objek yang korup
-            }
-          }
-          if (recovered.length >= 5) {
-            parsed = recovered;
-          }
-        }
-      }
-
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("Blok array JSON tidak ditemukan pada respon AI");
-      }
-
-      // Validasi dan normalisasi tiap item
+      const rawItems = extractSoalListFromAI(rawContent);
       const validSoal: SoalAIItem[] = [];
-      for (const item of parsed) {
-        if (
-          item &&
-          typeof item.pertanyaan === "string" &&
-          item.pertanyaan.trim().length > 0 &&
-          Array.isArray(item.pilihan) &&
-          item.pilihan.length >= 2
-        ) {
-          const jawabanBenar =
-            typeof item.jawabanBenar === "number" &&
-            item.jawabanBenar >= 0 &&
-            item.jawabanBenar < item.pilihan.length
-              ? item.jawabanBenar
-              : 0;
 
-          validSoal.push({
-            pertanyaan: item.pertanyaan.trim(),
-            pilihan: item.pilihan.map((p: unknown) => String(p).trim()),
-            jawabanBenar,
-            level,
-            penjelasan: typeof item.penjelasan === "string" ? item.penjelasan.trim() : undefined,
-          });
+      for (const raw of rawItems) {
+        const item = normalizeSoalItem(raw, level);
+        if (item) {
+          validSoal.push(item);
         }
       }
 
       if (validSoal.length < 5) {
-        throw new Error(`Hanya ${validSoal.length} butir soal valid yang terbentuk (minimal 5 butir)`);
+        throw new Error(
+          `Hanya ${validSoal.length} butir soal valid yang dapat diekstrak dari respon AI (minimal 5 butir)`
+        );
       }
 
       return validSoal;
