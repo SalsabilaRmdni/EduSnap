@@ -98,12 +98,12 @@ export async function GET(
         Array.isArray(progresSiswa.percobaan_aktif.soal_ids) &&
         progresSiswa.percobaan_aktif.soal_ids.length > 0
       ) {
-        const idSet = new Set(
-          progresSiswa.percobaan_aktif.soal_ids.map((id: unknown) => String(id))
+        const idMap = new Map(
+          sesi.soal.map((s: { _id?: unknown }) => [String(s._id), s])
         );
-        activeQuestions = sesi.soal.filter((s: { _id?: unknown }) =>
-          idSet.has(String(s._id))
-        );
+        activeQuestions = progresSiswa.percobaan_aktif.soal_ids
+          .map((id: unknown) => idMap.get(String(id)))
+          .filter(Boolean) as typeof sesi.soal;
       }
 
       // Jika belum ada percobaan aktif atau soal tidak ditemukan: pilih soal baru

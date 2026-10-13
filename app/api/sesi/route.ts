@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
       pilihan: s.pilihan,
       jawaban_benar: s.jawabanBenar,
       level: s.level || 1,
+      penjelasan: (s as unknown as { penjelasan?: string }).penjelasan || "",
     }));
 
     const sesiBaru = await Sesi.create({

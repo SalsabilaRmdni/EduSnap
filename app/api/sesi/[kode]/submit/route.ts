@@ -116,31 +116,128 @@ export async function POST(
 
     const { level: levelSaatIni, soal_ids: activeSoalIds } = progresSiswa.percobaan_aktif;
 
-    // Ambil soal-soal yang sedang aktif dari database server (Anti manipulasi browser)
-    const activeIdSet = new Set(activeSoalIds.map((id: unknown) => String(id)));
-    const soalAktif = sesi.soal.filter((s: { _id?: unknown }) =>
-      activeIdSet.has(String(s._id))
-    );
+    // Helper konversi kunci jawaban (angka 0-3, huruf A-D, string angka, atau teks opsi)
+    function parseKunci(val: unknown, pilihan: string[] = []): number {
+      if (typeof val === "number" && !isNaN(val)) return val;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        const upper = trimmed.toUpperCase();
+        if (upper === "A") return 0;
+        if (upper === "B") return 1;
+        if (upper === "C") return 2;
+        if (upper === "D") return 3;
 
-    const totalSoal = soalAktif.length > 0 ? soalAktif.length : sesi.soal.length;
+        const num = parseInt(trimmed, 10);
+        if (!isNaN(num) && num >= 0 && num < (pilihan.length || 10)) {
+          return num;
+        }
+
+        if (Array.isArray(pilihan)) {
+          const matchIdx = pilihan.findIndex(
+            (p) => p.trim().toLowerCase() === trimmed.toLowerCase()
+          );
+          if (matchIdx !== -1) return matchIdx;
+        }
+      }
+      return -1;
+    }
+
+    // Ambil soal-soal aktif dari server menjaga URUTAN PERSIS activeSoalIds
+    const idMap = new Map(
+      sesi.soal.map((s: ISoal) => [String((s as { _id?: unknown })._id), s])
+    );
+    const soalAktif = (activeSoalIds || [])
+      .map((id: unknown) => idMap.get(String(id)))
+      .filter((s: unknown): s is ISoal => Boolean(s));
+
+    // Petakan jawaban siswa (bisa berupa [{ soalId, jawaban }] atau [0, 1, 2, ...])
+    const jawabanMap = new Map<string, number>();
+    const jawabanArrayRaw: number[] = [];
+
+    if (Array.isArray(jawaban)) {
+      jawaban.forEach((item, index) => {
+        if (item && typeof item === "object" && "soalId" in item) {
+          const sId = String(item.soalId);
+          const ans = Number(item.jawaban);
+          const parsedAns = isNaN(ans) ? -1 : ans;
+          jawabanMap.set(sId, parsedAns);
+          jawabanArrayRaw.push(parsedAns);
+        } else {
+          const ans = Number(item);
+          const parsedAns = isNaN(ans) ? -1 : ans;
+          jawabanArrayRaw.push(parsedAns);
+          const sId = activeSoalIds && activeSoalIds[index] ? String(activeSoalIds[index]) : undefined;
+          if (sId) {
+            jawabanMap.set(sId, parsedAns);
+          }
+        }
+      });
+    }
+
+    const totalSoal = soalAktif.length > 0 ? soalAktif.length : (sesi.soal.length || 1);
     let jumlahBenar = 0;
 
+    const hurufLabels = ["A", "B", "C", "D", "E", "F"];
+
     const detailEvaluasi = soalAktif.map((s: ISoal, idx: number) => {
-      const jawabanSiswa = jawaban[idx] !== undefined ? Number(jawaban[idx]) : -1;
-      const kunciJawaban = Number(s.jawaban_benar);
-      const isBenar = jawabanSiswa === kunciJawaban;
+      const sId = String((s as { _id?: unknown })._id || "");
+      let jawabanSiswa = -1;
+
+      if (sId && jawabanMap.has(sId)) {
+        jawabanSiswa = jawabanMap.get(sId)!;
+      } else if (idx < jawabanArrayRaw.length) {
+        jawabanSiswa = jawabanArrayRaw[idx];
+      }
+
+      const pilihan = Array.isArray(s.pilihan) ? s.pilihan : [];
+      const kunciJawaban = parseKunci(s.jawaban_benar, pilihan);
+      const isBenar = jawabanSiswa >= 0 && jawabanSiswa === kunciJawaban;
 
       if (isBenar) {
         jumlahBenar++;
       }
 
+      const labelSiswa =
+        jawabanSiswa >= 0 && jawabanSiswa < hurufLabels.length
+          ? hurufLabels[jawabanSiswa]
+          : "-";
+      const teksSiswa =
+        jawabanSiswa >= 0 && pilihan[jawabanSiswa]
+          ? pilihan[jawabanSiswa]
+          : "(Tidak dijawab)";
+
+      const labelKunci =
+        kunciJawaban >= 0 && kunciJawaban < hurufLabels.length
+          ? hurufLabels[kunciJawaban]
+          : "-";
+      const teksKunci =
+        kunciJawaban >= 0 && pilihan[kunciJawaban]
+          ? pilihan[kunciJawaban]
+          : "-";
+
+      // Penjelasan / pembahasan edukatif ramah anak
+      let penjelasan = (s as { penjelasan?: string }).penjelasan?.trim() || "";
+      if (!penjelasan) {
+        if (isBenar) {
+          penjelasan = `Pilihanmu tepat sekali! Jawaban yang benar adalah pilihan ${labelKunci}: "${teksKunci}".`;
+        } else {
+          penjelasan = `Jawaban yang tepat adalah pilihan ${labelKunci}: "${teksKunci}". Kamu memilih "${teksSiswa}". Pelajari kembali materi ini agar di kesempatan berikutnya dapat menjawab dengan tepat!`;
+        }
+      }
+
       return {
         nomor: idx + 1,
+        soalId: sId,
         pertanyaan: s.pertanyaan,
-        pilihan: s.pilihan,
+        pilihan,
         jawabanSiswa,
         kunciJawaban,
+        labelSiswa,
+        teksSiswa,
+        labelKunci,
+        teksKunci,
         isBenar,
+        penjelasan,
       };
     });
 
@@ -180,7 +277,7 @@ export async function POST(
       percobaan_ke: nomorPercobaan,
       level: levelSaatIni,
       soal_ids: activeSoalIds,
-      jawaban,
+      jawaban: jawabanArrayRaw,
       skor,
       jumlah_benar: jumlahBenar,
       total_soal: totalSoal,
@@ -212,7 +309,7 @@ export async function POST(
       level: levelSaatIni,
       percobaan_ke: nomorPercobaan,
       lulus,
-      jawaban,
+      jawaban: jawabanArrayRaw,
       skor,
       jumlah_benar: jumlahBenar,
       total_soal: totalSoal,

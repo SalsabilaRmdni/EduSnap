@@ -18,7 +18,7 @@ const cached: MongooseCache = global._mongooseCache ?? { conn: null, promise: nu
 global._mongooseCache = cached;
 
 export async function connectDB() {
-  if (cached.conn) {
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return cached.conn;
   }
 
@@ -32,12 +32,22 @@ export async function connectDB() {
     );
   }
 
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, {
-      bufferCommands: false,
+  // Sanitasi URI (perbaiki typo umum seperti tanda tanya ganda '??' pada query string)
+  const cleanUri = MONGODB_URI.trim().replace(/\?\?+/g, "?");
+
+  if (!cached.promise || mongoose.connection.readyState === 0) {
+    cached.promise = mongoose.connect(cleanUri, {
+      serverSelectionTimeoutMS: 15000,
     });
   }
 
-  cached.conn = await cached.promise;
+  try {
+    cached.conn = await cached.promise;
+  } catch (err) {
+    cached.promise = null;
+    cached.conn = null;
+    throw err;
+  }
+
   return cached.conn;
 }

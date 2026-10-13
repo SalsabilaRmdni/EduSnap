@@ -11,6 +11,7 @@ interface SoalAIItem {
   pilihan: string[];
   jawabanBenar: number;
   level: number;
+  penjelasan?: string;
 }
 
 const LEVEL_CONFIGS = {
@@ -45,16 +46,25 @@ async function requestLevelSoal(
 ): Promise<SoalAIItem[]> {
   const { nama, panduan } = LEVEL_CONFIGS[level];
 
+  const isOcrValid =
+    teksOCR &&
+    teksOCR.trim().length >= 10 &&
+    !teksOCR.includes("[Gagal membaca");
+
+  const sumberMateri = isOcrValid
+    ? `Teks Buku Pelajaran (Hasil OCR):
+"""
+${teksOCR}
+"""`
+    : `(Catatan: Teks hasil pindai kurang terbaca, jadi gunakan topik materi "${namaMateri}" untuk mata pelajaran ${konteksMapel} ${konteksKelas} sebagai acuan pembuatan soal).`;
+
   const prompt = `Kamu adalah guru ${konteksKelas} yang ramah, mendidik, dan ahli dalam penyusunan soal evaluasi SD berjenjang.
 Berdasarkan materi pelajaran dari buku sekolah berikut:
 - Mata Pelajaran: ${konteksMapel}
 - Tingkat Siswa: ${konteksKelas} ${konteksHalaman}
 - Judul Bab/Materi: ${namaMateri}
 
-Teks Buku Pelajaran (Hasil OCR):
-"""
-${teksOCR}
-"""
+${sumberMateri}
 
 TUGAS:
 Buatkan 10 butir soal kuis pilihan ganda khusus untuk ${nama}.
@@ -65,14 +75,17 @@ Ketentuan Khusus:
 1. Buat tepat 10 butir soal.
 2. Setiap soal memiliki tepat 4 pilihan jawaban yang masuk akal bagi anak SD.
 3. Setiap soal memiliki tepat 1 kunci jawaban berupa indeks angka (0, 1, 2, atau 3).
-4. Pertanyaan dan pilihan harus dalam Bahasa Indonesia yang baik dan bebas dari kesalahan ketik OCR.
+4. Setiap soal memiliki penjelasan/pembahasan singkat yang mendidik dan mudah dipahami anak SD.
+5. Pertanyaan dan pilihan harus dalam Bahasa Indonesia yang baik dan bebas dari kesalahan ketik OCR.
+6. Pertanyaan dan pilihan harus ringkas, lugas, dan padat (hindari paragraf bacaan cerita yang terlalu panjang agar respon lengkap).
 
 Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar, tanpa markdown):
 [
   {
     "pertanyaan": "Pertanyaan soal...",
     "pilihan": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],
-    "jawabanBenar": 0
+    "jawabanBenar": 0,
+    "penjelasan": "Penjelasan ringkas mengapa jawaban ini benar."
   }
 ]`;
 
@@ -90,6 +103,7 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
           model: modelName,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.7,
+          max_tokens: 3500,
         }),
       });
 
@@ -101,15 +115,45 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
       const aiData = await aiRes.json();
       const rawContent: string = aiData.choices?.[0]?.message?.content ?? "";
 
-      // Regex ekstraksi blok array JSON agar tahan terhadap kata pengantar/penutup AI
+      // 1. Coba parse array utuh
       const jsonMatch = rawContent.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (!jsonMatch) {
-        throw new Error("Blok array JSON tidak ditemukan pada respon AI");
+      let parsed: unknown = null;
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch {
+          try {
+            const sanitized = jsonMatch[0].replace(/,\s*([\]}])/g, "$1");
+            parsed = JSON.parse(sanitized);
+          } catch {
+            parsed = null;
+          }
+        }
       }
 
-      const parsed: unknown = JSON.parse(jsonMatch[0]);
+      // 2. Jika parse array utuh belum berhasil, pulihkan dari objek-objek pertanyaan yang sudah terbentuk
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("Hasil parse bukan array atau array kosong");
+        const objectMatches = rawContent.match(/\{[\s\S]*?"pertanyaan"[\s\S]*?"pilihan"[\s\S]*?"jawabanBenar"[\s\S]*?\}/g);
+        if (objectMatches && objectMatches.length > 0) {
+          const recovered: Array<{ pertanyaan: string; pilihan: string[]; jawabanBenar: number; penjelasan?: string }> = [];
+          for (const objStr of objectMatches) {
+            try {
+              const obj = JSON.parse(objStr.replace(/,\s*([\]}])/g, "$1"));
+              if (obj.pertanyaan && Array.isArray(obj.pilihan)) {
+                recovered.push(obj);
+              }
+            } catch {
+              // Lewati objek yang korup
+            }
+          }
+          if (recovered.length >= 5) {
+            parsed = recovered;
+          }
+        }
+      }
+
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error("Blok array JSON tidak ditemukan pada respon AI");
       }
 
       // Validasi dan normalisasi tiap item
@@ -134,6 +178,7 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
             pilihan: item.pilihan.map((p: unknown) => String(p).trim()),
             jawabanBenar,
             level,
+            penjelasan: typeof item.penjelasan === "string" ? item.penjelasan.trim() : undefined,
           });
         }
       }
@@ -192,9 +237,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!materi.teksHasilOCR || materi.teksHasilOCR.trim().length < 10) {
+    const isOcrEmpty =
+      !materi.teksHasilOCR ||
+      materi.teksHasilOCR.trim().length < 5 ||
+      materi.teksHasilOCR.includes("[Gagal membaca");
+
+    if (isOcrEmpty && (!materi.namaMateri || materi.namaMateri.trim().length < 3)) {
       return NextResponse.json(
-        { error: "Teks hasil OCR kosong atau terlalu pendek, tidak bisa generate soal" },
+        { error: "Teks buku atau judul materi tidak valid, tidak bisa generate soal" },
         { status: 400 }
       );
     }
@@ -214,12 +264,15 @@ export async function POST(req: NextRequest) {
 
     // 3 panggilan AI paralel (satu per level) dengan mekanisme retry mandiri per level
     const [soalLvl1, soalLvl2, soalLvl3] = await Promise.all([
-      requestLevelSoal(1, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR, apiKey, modelName),
-      requestLevelSoal(2, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR, apiKey, modelName),
-      requestLevelSoal(3, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR, apiKey, modelName),
+      requestLevelSoal(1, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
+      requestLevelSoal(2, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
+      requestLevelSoal(3, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
     ]);
 
     const semuaSoal = [...soalLvl1, ...soalLvl2, ...soalLvl3];
+
+    // Pastikan koneksi DB tetap aktif setelah pemanggilan AI paralel
+    await connectDB();
 
     const soalTersimpan = await Soal.insertMany(
       semuaSoal.map((s) => ({
@@ -227,6 +280,7 @@ export async function POST(req: NextRequest) {
         pilihan: s.pilihan,
         jawabanBenar: s.jawabanBenar,
         level: s.level,
+        penjelasan: s.penjelasan,
         materiId,
       }))
     );

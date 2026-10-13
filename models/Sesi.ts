@@ -6,6 +6,7 @@ export interface ISoal {
   pilihan: string[];
   jawaban_benar: string | number;
   level?: number;
+  penjelasan?: string;
 }
 
 export interface ISesi extends mongoose.Document {
@@ -32,6 +33,7 @@ const SoalSchema = new Schema<ISoal>(
     pilihan: { type: [String], default: [] },
     jawaban_benar: { type: Schema.Types.Mixed, required: true },
     level: { type: Number, enum: [1, 2, 3], default: 1 },
+    penjelasan: { type: String, required: false },
   },
   { _id: true }
 );

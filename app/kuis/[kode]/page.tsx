@@ -27,11 +27,17 @@ interface SesiSiswa {
 
 interface HasilEvaluasi {
   nomor: number;
+  soalId?: string;
   pertanyaan: string;
   pilihan: string[];
   jawabanSiswa: number;
   kunciJawaban: number;
+  labelSiswa?: string;
+  teksSiswa?: string;
+  labelKunci?: string;
+  teksKunci?: string;
   isBenar: boolean;
+  penjelasan?: string;
 }
 
 interface ProgresInfo {
@@ -115,6 +121,7 @@ function KuisSiswaContent() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [hasil, setHasil] = useState<HasilKuis | null>(null);
+  const [filterReview, setFilterReview] = useState<"semua" | "salah">("salah");
 
   const fetchSesi = useCallback(async () => {
     if (!kode) return;
@@ -170,9 +177,10 @@ function KuisSiswaContent() {
     setSubmitting(true);
     setErrorMsg("");
 
-    const jawabanArray = sesi.soal.map((_, idx) =>
-      jawaban[idx] !== undefined ? jawaban[idx] : -1
-    );
+    const jawabanPayload = sesi.soal.map((s, idx) => ({
+      soalId: s.id,
+      jawaban: jawaban[idx] !== undefined ? jawaban[idx] : -1,
+    }));
 
     try {
       const res = await fetch(`/api/sesi/${kode}/submit`, {
@@ -180,7 +188,7 @@ function KuisSiswaContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           namaSiswa: namaSiswa.trim(),
-          jawaban: jawabanArray,
+          jawaban: jawabanPayload,
         }),
       });
 
@@ -236,24 +244,30 @@ function KuisSiswaContent() {
   };
 
   // ==========================================
-  // SCREEN 4: HASIL SOAL ADAPTIF (3 KONDISI)
+  // SCREEN 4: HASIL SOAL ADAPTIF (3 KONDISI) & PEMBAHASAN SOAL
   // ==========================================
   if (hasil) {
     const totalSoal = hasil.totalSoal;
-    const salahCount = totalSoal - hasil.jumlahBenar;
+    const salahCount = Math.max(0, totalSoal - hasil.jumlahBenar);
     const isMateriSelesai = hasil.lulus && hasil.statusMateri === "selesai";
     const isLulusLevel = hasil.lulus && !isMateriSelesai;
     const isGagal = !hasil.lulus;
 
+    const detailList = hasil.detail || [];
+    const listReview =
+      filterReview === "salah"
+        ? detailList.filter((d) => !d.isBenar)
+        : detailList;
+
     return (
-      <main className="min-h-screen bg-gradient-to-b from-sky-100 via-sky-50 to-emerald-50 p-4 sm:p-6 flex flex-col justify-between items-center relative overflow-hidden">
+      <main className="min-h-screen bg-gradient-to-b from-sky-100 via-sky-50 to-emerald-50 p-4 sm:p-6 pb-28 flex flex-col items-center relative overflow-x-hidden overflow-y-auto">
         {/* Floating Confetti & Stars */}
         <div className="absolute top-10 left-8 text-amber-400 text-3xl animate-bounce">⭐</div>
         <div className="absolute top-16 right-10 text-amber-400 text-4xl animate-bounce">⭐</div>
         <div className="absolute top-28 left-16 text-pink-400 text-2xl">✨</div>
         <div className="absolute top-24 right-20 text-sky-400 text-2xl">✨</div>
 
-        <div className="w-full max-w-sm sm:max-w-md mx-auto my-auto z-10 pt-4 space-y-4 text-center">
+        <div className="w-full max-w-sm sm:max-w-lg mx-auto z-10 pt-4 pb-12 space-y-5 text-center">
           {/* Mascot */}
           <div className="flex justify-center -mb-2">
             <MascotBook className="w-32 h-32 sm:w-40 sm:h-40" />
@@ -294,7 +308,7 @@ function KuisSiswaContent() {
                   Ayo Semangat, {hasil.namaSiswa}! 💪
                 </h1>
                 <p className="text-xs sm:text-sm font-bold text-slate-500">
-                  Minimal 4 soal benar (nilai 80) untuk lulus. Jangan menyerah, yuk coba lagi dengan soal baru!
+                  Minimal 4 soal benar (nilai 80) untuk lulus. Jangan menyerah, yuk periksa pembahasan di bawah lalu coba lagi!
                 </p>
               </>
             )}
@@ -338,12 +352,12 @@ function KuisSiswaContent() {
             </div>
           </div>
 
-          {/* Action Buttons Dinamis */}
-          <div className="pt-2 space-y-2">
+          {/* Tombol Aksi Cepat (Bagian Atas) */}
+          <div className="pt-1 space-y-2">
             {isGagal && (
               <button
                 onClick={handleCobaLagiAtauLanjut}
-                className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition"
+                className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <span>🔄</span>
                 <span>Ulangi Level {hasil.levelSaatIni} (Soal Baru)</span>
@@ -353,7 +367,170 @@ function KuisSiswaContent() {
             {isLulusLevel && (
               <button
                 onClick={handleCobaLagiAtauLanjut}
-                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-white shadow-md shadow-emerald-300/40 flex items-center justify-center gap-2 transition"
+                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-white shadow-md shadow-emerald-300/40 flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <span>🚀</span>
+                <span>Lanjut ke Level {hasil.levelBaru}</span>
+              </button>
+            )}
+          </div>
+
+          {/* ========================================== */}
+          {/* SECTION PEMBAHASAN SOAL & PENJELASAN EDUKATIF */}
+          {/* ========================================== */}
+          <div className="pt-3 text-left space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                <span>📝</span>
+                <span>Pembahasan Soal</span>
+              </h2>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center bg-slate-200/80 p-1 rounded-xl text-xs font-black">
+                <button
+                  type="button"
+                  onClick={() => setFilterReview("salah")}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    filterReview === "salah"
+                      ? "bg-white text-rose-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Salah ({salahCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterReview("semua")}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    filterReview === "semua"
+                      ? "bg-white text-sky-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Semua ({totalSoal})
+                </button>
+              </div>
+            </div>
+
+            {/* List Kartu Soal */}
+            {listReview.length === 0 ? (
+              <div className="rounded-2xl border-2 border-emerald-200 bg-white p-6 text-center space-y-2 shadow-xs">
+                <span className="text-3xl block">🌟</span>
+                <p className="text-sm font-black text-emerald-900">
+                  Semua soal dijawab dengan benar!
+                </p>
+                <p className="text-xs text-slate-500">
+                  Tidak ada soal salah di kuis ini. Klik tab &quot;Semua ({totalSoal})&quot; jika ingin melihat seluruh pembahasan.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {listReview.map((item) => {
+                  const isSalah = !item.isBenar;
+                  return (
+                    <div
+                      key={item.nomor}
+                      className={`rounded-2xl border-2 p-4 sm:p-5 space-y-3 text-left bg-white transition-all shadow-xs ${
+                        isSalah ? "border-rose-200" : "border-emerald-200"
+                      }`}
+                    >
+                      {/* Header Soal */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                          Nomor {item.nomor}
+                        </span>
+                        {item.isBenar ? (
+                          <span className="text-xs font-black text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+                            ✓ Benar
+                          </span>
+                        ) : (
+                          <span className="text-xs font-black text-rose-700 bg-rose-100 px-3 py-1 rounded-full border border-rose-200 flex items-center gap-1">
+                            ✕ Perlu Dipelajari
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Pertanyaan */}
+                      <p className="text-sm sm:text-base font-black text-slate-900 leading-snug">
+                        {item.pertanyaan}
+                      </p>
+
+                      {/* Pilihan Jawaban Lengkap */}
+                      <div className="space-y-1.5 pt-1">
+                        {item.pilihan.map((opsi, oIdx) => {
+                          const huruf = ["A", "B", "C", "D", "E"][oIdx] || String(oIdx + 1);
+                          const isOpsiSiswa = item.jawabanSiswa === oIdx;
+                          const isOpsiKunci = item.kunciJawaban === oIdx;
+
+                          let badgeClass = "bg-slate-50 border-slate-200 text-slate-700";
+                          let extraTag = null;
+
+                          if (isOpsiKunci) {
+                            badgeClass = "bg-emerald-50 border-emerald-300 text-emerald-950 font-bold";
+                            extraTag = (
+                              <span className="ml-auto text-[11px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0">
+                                ✓ Kunci Benar
+                              </span>
+                            );
+                          } else if (isOpsiSiswa && !item.isBenar) {
+                            badgeClass = "bg-rose-50 border-rose-300 text-rose-950 font-bold";
+                            extraTag = (
+                              <span className="ml-auto text-[11px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md shrink-0">
+                                ✕ Jawaban Kamu
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={oIdx}
+                              className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${badgeClass}`}
+                            >
+                              <span className="font-black w-5 h-5 rounded-md bg-white/80 border border-slate-300 flex items-center justify-center shrink-0">
+                                {huruf}
+                              </span>
+                              <span className="leading-snug">{opsi}</span>
+                              {extraTag}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Kotak Penjelasan / Pembahasan Edukatif */}
+                      {item.penjelasan && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-slate-800 space-y-1 mt-2">
+                          <div className="flex items-center gap-1.5 font-black text-amber-900 text-[11px]">
+                            <span>💡</span>
+                            <span>Penjelasan Materi:</span>
+                          </div>
+                          <p className="font-semibold text-slate-700 leading-relaxed">
+                            {item.penjelasan}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Tombol Aksi Bawah */}
+          <div className="pt-2 space-y-2">
+            {isGagal && (
+              <button
+                onClick={handleCobaLagiAtauLanjut}
+                className="w-full rounded-2xl bg-amber-400 hover:bg-amber-500 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-slate-900 shadow-md shadow-amber-300/40 flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <span>🔄</span>
+                <span>Ulangi Level {hasil.levelSaatIni} (Soal Baru)</span>
+              </button>
+            )}
+
+            {isLulusLevel && (
+              <button
+                onClick={handleCobaLagiAtauLanjut}
+                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 py-3.5 px-6 text-sm sm:text-base font-black text-white shadow-md shadow-emerald-300/40 flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <span>🚀</span>
                 <span>Lanjut ke Level {hasil.levelBaru}</span>
@@ -362,7 +539,7 @@ function KuisSiswaContent() {
 
             <button
               onClick={() => router.push("/siswa")}
-              className="w-full rounded-2xl bg-white border-2 border-slate-200 hover:bg-slate-50 active:scale-98 py-3 px-6 text-xs sm:text-sm font-black text-slate-700 transition flex items-center justify-center gap-2"
+              className="w-full rounded-2xl bg-white border-2 border-slate-200 hover:bg-slate-50 active:scale-98 py-3 px-6 text-xs sm:text-sm font-black text-slate-700 transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>🏠</span>
               <span>Kembali ke Beranda Belajar</span>
@@ -371,7 +548,7 @@ function KuisSiswaContent() {
         </div>
 
         {/* Decorative Green Grass Hills */}
-        <div className="w-full absolute bottom-0 inset-x-0 z-0 pointer-events-none">
+        <div className="w-full fixed bottom-0 inset-x-0 z-0 pointer-events-none opacity-40">
           <DecorativeSkyHills />
         </div>
       </main>

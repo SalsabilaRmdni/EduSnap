@@ -6,6 +6,7 @@ export interface ISoalDoc extends mongoose.Document {
   pilihan: string[];
   jawabanBenar: number;
   level: number;
+  penjelasan?: string;
   createdAt: Date;
 }
 
@@ -15,6 +16,7 @@ const SoalSchema = new Schema<ISoalDoc>({
   pilihan: { type: [String], required: true }, // 4 opsi jawaban
   jawabanBenar: { type: Number, required: true }, // index 0-3 dari array pilihan
   level: { type: Number, enum: [1, 2, 3], default: 1, required: true },
+  penjelasan: { type: String, required: false },
   createdAt: { type: Date, default: Date.now },
 });
 
