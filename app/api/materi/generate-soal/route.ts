@@ -89,6 +89,7 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
   }
 ]`;
 
+  let activeModel = modelName;
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxRetry; attempt++) {
@@ -100,7 +101,7 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: modelName,
+          model: activeModel,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.7,
           max_tokens: 3500,
@@ -109,7 +110,31 @@ Balas HANYA dengan JSON array murni (tanpa teks pembuka/penutup, tanpa komentar,
 
       if (!aiRes.ok) {
         const errText = await aiRes.text();
-        throw new Error(`OpenRouter HTTP ${aiRes.status}: ${errText}`);
+
+        // Jika terkena HTTP 402 (Payment Required / in_flight_budget_exhausted)
+        if (aiRes.status === 402) {
+          if (activeModel !== "openrouter/free") {
+            console.warn(`[GenerateSoal] Model ${activeModel} terkena limit kredit (HTTP 402). Mencoba beralih ke model gratis (openrouter/free)...`);
+            activeModel = "openrouter/free";
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+          throw new Error(
+            "Saldo kredit OpenRouter tidak mencukupi atau kuota pemanggilan bersamaan penuh. Silakan cek saldo kredit di https://openrouter.ai/settings/credits atau gunakan API key dengan kredit aktif."
+          );
+        }
+
+        let pesanError = `OpenRouter HTTP ${aiRes.status}: ${errText}`;
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed?.error?.message) {
+            pesanError = parsed.error.message;
+          }
+        } catch {
+          // ignore
+        }
+
+        throw new Error(pesanError);
       }
 
       const aiData = await aiRes.json();
@@ -262,12 +287,14 @@ export async function POST(req: NextRequest) {
     const konteksKelas = materi.kelas || "Sekolah Dasar (SD)";
     const konteksHalaman = materi.halaman ? `(Halaman: ${materi.halaman})` : "";
 
-    // 3 panggilan AI paralel (satu per level) dengan mekanisme retry mandiri per level
-    const [soalLvl1, soalLvl2, soalLvl3] = await Promise.all([
-      requestLevelSoal(1, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
-      requestLevelSoal(2, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
-      requestLevelSoal(3, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName),
-    ]);
+    // Panggil secara berurutan (sekuensial) agar tidak memicu error in_flight_budget_exhausted di OpenRouter
+    const soalLvl1 = await requestLevelSoal(1, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
+    await new Promise((r) => setTimeout(r, 800));
+
+    const soalLvl2 = await requestLevelSoal(2, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
+    await new Promise((r) => setTimeout(r, 800));
+
+    const soalLvl3 = await requestLevelSoal(3, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
 
     const semuaSoal = [...soalLvl1, ...soalLvl2, ...soalLvl3];
 
