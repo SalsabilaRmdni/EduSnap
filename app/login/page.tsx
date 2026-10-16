@@ -41,7 +41,10 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      const destination =
+        data.redirectUrl ||
+        (data.role === "admin" || data.guru?.role === "admin" ? "/admin/ai" : "/dashboard");
+      router.push(destination);
     } catch {
       setError("Gagal menghubungi server. Periksa koneksi internet.");
     } finally {

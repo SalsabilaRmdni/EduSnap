@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import Materi from "@/models/Materi";
 import Soal from "@/models/Soal";
@@ -50,7 +51,13 @@ export async function GET(
       );
     }
 
-    const soalList = await Soal.find({ materiId }).sort({ createdAt: 1 });
+    const targetMateriId = mongoose.Types.ObjectId.isValid(materiId)
+      ? new mongoose.Types.ObjectId(materiId)
+      : materiId;
+
+    const soalList = await Soal.find({
+      $or: [{ materiId: targetMateriId }, { materiId: String(materiId) }],
+    }).sort({ createdAt: 1 });
 
     return NextResponse.json({
       status: "ok",
@@ -116,7 +123,17 @@ export async function PUT(
       );
     }
 
-    const { soalId, pertanyaan, pilihan, jawabanBenar, level } = await req.json();
+    const {
+      soalId,
+      pertanyaan,
+      pilihan,
+      jawabanBenar,
+      level,
+      konsep,
+      difficulty,
+      penjelasan,
+      tips,
+    } = await req.json();
 
     if (!soalId) {
       return NextResponse.json(
@@ -125,14 +142,19 @@ export async function PUT(
       );
     }
 
+    const updateData: Record<string, any> = {};
+    if (pertanyaan !== undefined) updateData.pertanyaan = pertanyaan.trim();
+    if (Array.isArray(pilihan)) updateData.pilihan = pilihan;
+    if (jawabanBenar !== undefined) updateData.jawabanBenar = Number(jawabanBenar);
+    if (level !== undefined && [1, 2, 3].includes(Number(level))) updateData.level = Number(level);
+    if (konsep !== undefined) updateData.konsep = String(konsep).trim();
+    if (difficulty !== undefined) updateData.difficulty = difficulty;
+    if (penjelasan !== undefined) updateData.penjelasan = String(penjelasan).trim();
+    if (tips !== undefined) updateData.tips = String(tips).trim();
+
     const updated = await Soal.findOneAndUpdate(
       { _id: soalId, materiId },
-      {
-        pertanyaan: pertanyaan?.trim(),
-        pilihan: Array.isArray(pilihan) ? pilihan : undefined,
-        jawabanBenar: jawabanBenar !== undefined ? Number(jawabanBenar) : undefined,
-        level: level !== undefined && [1, 2, 3].includes(Number(level)) ? Number(level) : undefined,
-      },
+      updateData,
       { new: true }
     );
 

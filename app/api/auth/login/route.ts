@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/mongodb";
 import Guru from "@/models/Guru";
-import { createSessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { createSessionToken, SESSION_COOKIE_NAME, normalizeRole } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Akun belum terdaftar. Periksa kembali email/username atau daftar akun guru baru di menu registrasi.",
+          message: "Email atau password salah",
         },
         { status: 401 }
       );
@@ -40,30 +40,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           status: "error",
-          message: "Akun ini terdaftar menggunakan Google. Silakan masuk menggunakan tombol 'Masuk dengan Google'.",
+          message:
+            guru.auth_provider === "google"
+              ? "Akun ini terdaftar menggunakan Google. Silakan masuk menggunakan tombol 'Masuk dengan Google'."
+              : "Email atau password salah",
         },
-        { status: 400 }
+        { status: 401 }
       );
     }
 
     const passwordValid = await bcrypt.compare(password, guru.password_hash);
     if (!passwordValid) {
       return NextResponse.json(
-        { status: "error", message: "Kata sandi salah. Periksa kembali kata sandi Anda." },
+        { status: "error", message: "Email atau password salah" },
         { status: 401 }
       );
     }
+
+    const role = normalizeRole(guru.role);
+    const redirectUrl = role === "admin" ? "/admin/ai" : "/dashboard";
 
     const token = await createSessionToken({
       guruId: String(guru._id),
       nama: guru.nama,
       email: guru.email,
+      role,
     });
 
     const response = NextResponse.json({
       status: "ok",
       message: "Login berhasil",
-      guru: { id: guru._id, nama: guru.nama, email: guru.email },
+      role,
+      redirectUrl,
+      guru: { id: guru._id, nama: guru.nama, email: guru.email, role },
     });
 
     response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -76,7 +85,7 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("Error login:", error);
+    console.error("Error pada login Guru:", error instanceof Error ? error.message : "Internal error");
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       {
@@ -86,8 +95,7 @@ export async function POST(req: NextRequest) {
             ? "Gagal terhubung ke database MongoDB. Periksa koneksi internet atau whitelist IP di MongoDB Atlas."
             : msg.includes("JWT_SECRET")
             ? "Konfigurasi server belum lengkap (JWT_SECRET belum diset di .env.local)."
-            : "Gagal login. Terjadi kendala pada server.",
-        error: msg,
+            : "Gagal login. Terjadi kendala pada server, silakan coba lagi.",
       },
       { status: 500 }
     );

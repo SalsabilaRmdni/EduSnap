@@ -80,6 +80,7 @@ export async function GET(req: NextRequest) {
         return {
           id: sesi._id,
           kode_unik: sesi.kode_unik,
+          materi_id: sesi.materi_id ? String(sesi.materi_id) : null,
           judul_kuis: sesi.judul_kuis,
           mata_pelajaran: sesi.mata_pelajaran,
           tingkat_kelas: sesi.tingkat_kelas,
@@ -96,6 +97,49 @@ export async function GET(req: NextRequest) {
       })
     );
 
+    // 5. Ambil daftar materi untuk kelas ini beserta progres adaptive siswa
+    const Materi = (await import("@/models/Materi")).default;
+    const ProgressSiswa = (await import("@/models/ProgressSiswa")).default;
+
+    // Ambil materi berdasarkan kelas_id atau yang pernah dipakai di sesi kelas ini
+    const sesiMateriIds = sesiList
+      .map((s) => s.materi_id)
+      .filter((mid) => !!mid);
+
+    const materiDocs = await Materi.find({
+      $or: [
+        { kelas_id: kelas._id },
+        { _id: { $in: sesiMateriIds } },
+      ],
+    })
+      .select("-gambarList -teksHasilOCR")
+      .sort({ createdAt: -1 });
+
+    const materiWithProgress = await Promise.all(
+      materiDocs.map(async (m) => {
+        const p = await ProgressSiswa.findOne({
+          siswa_id: siswa._id,
+          materi_id: m._id,
+        });
+
+        return {
+          id: m._id,
+          namaMateri: m.namaMateri,
+          mataPelajaran: m.mataPelajaran || "Tematik / Umum",
+          kelas: m.kelas || kelas.nama_kelas,
+          halaman: m.halaman || "",
+          progress: {
+            levelSaatIni: p?.levelSaatIni || 1,
+            status: p?.status || "belum_mulai",
+            nilaiLevelSaatIni: p ? p.nilaiLevelSaatIni : null,
+            attemptKe: p?.attemptKe || 0,
+            konsepBelumDikuasai: p?.konsepBelumDikuasai || [],
+            lastAttemptAt: p?.lastAttemptAt || null,
+          },
+        };
+      })
+    );
+
     return NextResponse.json({
       status: "ok",
       siswa: {
@@ -108,6 +152,7 @@ export async function GET(req: NextRequest) {
         kode_kelas: kelas.kode_kelas,
       },
       kuisList: kuisWithStatus,
+      materiList: materiWithProgress,
     });
   } catch (error) {
     console.error("Error dashboard siswa:", error);

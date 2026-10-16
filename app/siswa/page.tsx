@@ -10,6 +10,7 @@ import BottomNavSiswa from "@/components/BottomNavSiswa";
 interface KuisSiswaItem {
   id: string;
   kode_unik: string;
+  materi_id?: string | null;
   judul_kuis: string;
   mata_pelajaran: string;
   tingkat_kelas: string;
@@ -23,6 +24,24 @@ interface KuisSiswaItem {
   level_saat_ini?: number;
   status_materi?: "sedang_belajar" | "selesai";
   total_percobaan?: number;
+}
+
+interface ProgressAdaptive {
+  levelSaatIni: number;
+  status: "belum_mulai" | "belajar" | "remedial" | "menguasai";
+  nilaiLevelSaatIni: number | null;
+  attemptKe: number;
+  konsepBelumDikuasai: string[];
+  lastAttemptAt: string | null;
+}
+
+interface MateriSiswaItem {
+  id: string;
+  namaMateri: string;
+  mataPelajaran: string;
+  kelas: string;
+  halaman?: string;
+  progress: ProgressAdaptive;
 }
 
 interface SiswaData {
@@ -114,6 +133,7 @@ function SiswaDashboardContent() {
   const [siswa, setSiswa] = useState<SiswaData | null>(null);
   const [kelas, setKelas] = useState<KelasData | null>(null);
   const [kuisList, setKuisList] = useState<KuisSiswaItem[]>([]);
+  const [materiList, setMateriList] = useState<MateriSiswaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showProfil, setShowProfil] = useState(false);
 
@@ -135,6 +155,7 @@ function SiswaDashboardContent() {
         setSiswa(data.siswa);
         setKelas(data.kelas);
         setKuisList(data.kuisList || []);
+        setMateriList(data.materiList || []);
       }
     } catch {
       // Fallback
@@ -252,10 +273,225 @@ function SiswaDashboardContent() {
           </div>
         </div>
 
-        {/* Section Materi Tersedia (belum tuntas) */}
+        {/* Section Materi Belajar Mandiri (Adaptive Learning) */}
         <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+              <span>📚</span>
+              <span>Jalur Belajar Mandiri (Adaptive)</span>
+            </h2>
+            <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              Mastery 80%
+            </span>
+          </div>
+
+          {materiList.length > 0 ? (
+            <div className="space-y-3.5">
+              {materiList.map((materi, idx) => {
+                const theme = CARD_THEMES[idx % CARD_THEMES.length];
+                const p = materi.progress;
+                const isRemedial = p.status === "remedial";
+                const isMenguasai = p.status === "menguasai";
+                const currentLvl = p.levelSaatIni || 1;
+
+                return (
+                  <div
+                    key={materi.id}
+                    className={`rounded-3xl border-2 ${
+                      isRemedial
+                        ? "border-amber-300 bg-amber-50/50"
+                        : isMenguasai
+                        ? "border-emerald-300 bg-emerald-50/40"
+                        : `${theme.border} bg-white`
+                    } p-4 sm:p-5 shadow-xs hover:shadow-md transition space-y-3`}
+                  >
+                    {/* Header Materi */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`h-11 w-11 rounded-2xl ${
+                            isRemedial
+                              ? "bg-amber-400"
+                              : isMenguasai
+                              ? "bg-emerald-400"
+                              : theme.iconBg
+                          } flex items-center justify-center text-xl shadow-2xs shrink-0 text-white`}
+                        >
+                          {isMenguasai ? "🏆" : isRemedial ? "🌱" : theme.icon}
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 block">
+                            {materi.mataPelajaran}
+                          </span>
+                          <h3 className="font-black text-sm sm:text-base text-slate-900 leading-snug">
+                            {materi.namaMateri}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {p.nilaiLevelSaatIni !== null && (
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] font-extrabold text-slate-400 block uppercase">
+                            Nilai Terakhir
+                          </span>
+                          <span
+                            className={`text-base font-black ${
+                              p.nilaiLevelSaatIni >= 80
+                                ? "text-emerald-600"
+                                : "text-amber-600"
+                            }`}
+                          >
+                            {p.nilaiLevelSaatIni}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Indikator Level 1 - 2 - 3 */}
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {/* Level 1: Mudah */}
+                      <div
+                        className={`rounded-xl p-2 text-center text-xs font-black border ${
+                          currentLvl > 1 || isMenguasai
+                            ? "bg-emerald-100 border-emerald-300 text-emerald-800"
+                            : currentLvl === 1
+                            ? isRemedial
+                              ? "bg-amber-100 border-amber-300 text-amber-900"
+                              : "bg-sky-100 border-sky-300 text-sky-900"
+                            : "bg-slate-100 border-slate-200 text-slate-400"
+                        }`}
+                      >
+                        <span className="block text-[11px]">
+                          {currentLvl > 1 || isMenguasai ? "⭐ Selesai" : "⭐ Aktif"}
+                        </span>
+                        <span className="text-[10px] font-extrabold">L1: Mudah</span>
+                      </div>
+
+                      {/* Level 2: Sedang */}
+                      <div
+                        className={`rounded-xl p-2 text-center text-xs font-black border ${
+                          currentLvl > 2 || isMenguasai
+                            ? "bg-emerald-100 border-emerald-300 text-emerald-800"
+                            : currentLvl === 2
+                            ? isRemedial
+                              ? "bg-amber-100 border-amber-300 text-amber-900"
+                              : "bg-sky-100 border-sky-300 text-sky-900"
+                            : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
+                        }`}
+                      >
+                        <span className="block text-[11px]">
+                          {currentLvl > 2 || isMenguasai
+                            ? "⭐ Selesai"
+                            : currentLvl === 2
+                            ? "⭐ Aktif"
+                            : "🔒 Terkunci"}
+                        </span>
+                        <span className="text-[10px] font-extrabold">L2: Sedang</span>
+                      </div>
+
+                      {/* Level 3: Sulit */}
+                      <div
+                        className={`rounded-xl p-2 text-center text-xs font-black border ${
+                          isMenguasai
+                            ? "bg-emerald-100 border-emerald-300 text-emerald-800"
+                            : currentLvl === 3
+                            ? isRemedial
+                              ? "bg-amber-100 border-amber-300 text-amber-900"
+                              : "bg-sky-100 border-sky-300 text-sky-900"
+                            : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
+                        }`}
+                      >
+                        <span className="block text-[11px]">
+                          {isMenguasai
+                            ? "🏆 Menguasai"
+                            : currentLvl === 3
+                            ? "⭐ Aktif"
+                            : "🔒 Terkunci"}
+                        </span>
+                        <span className="text-[10px] font-extrabold">L3: Sulit</span>
+                      </div>
+                    </div>
+
+                    {/* Status Text & Tombol Aksi */}
+                    <div className="flex items-center justify-between pt-1 gap-2">
+                      <div className="text-xs font-bold text-slate-600 truncate">
+                        {isMenguasai ? (
+                          <span className="text-emerald-700 font-extrabold">
+                            🎉 Selamat! Semua level telah dikuasai.
+                          </span>
+                        ) : isRemedial ? (
+                          <span className="text-amber-800 font-extrabold">
+                            ⚠️ Perlu remedial untuk memperkuat konsep.
+                          </span>
+                        ) : currentLvl > 1 ? (
+                          <span className="text-sky-800 font-extrabold">
+                            Hebat! Kamu berada di Level {currentLvl}.
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 font-bold">
+                            Mulai perjalanan belajarmu dari Level 1.
+                          </span>
+                        )}
+                      </div>
+
+                      <Link
+                        href={`/siswa/adaptive/${materi.id}?kode=${encodeURIComponent(
+                          kodeKelas
+                        )}&nama=${encodeURIComponent(siswa?.nama || namaSiswa)}`}
+                        className={`shrink-0 px-4 py-2.5 rounded-2xl font-black text-xs transition shadow-xs active:scale-95 flex items-center gap-1.5 ${
+                          isRemedial
+                            ? "bg-amber-400 hover:bg-amber-500 text-slate-900"
+                            : isMenguasai
+                            ? "bg-emerald-500 hover:bg-emerald-600 text-white"
+                            : currentLvl > 1
+                            ? "bg-sky-500 hover:bg-sky-600 text-white"
+                            : "bg-amber-400 hover:bg-amber-500 text-slate-900"
+                        }`}
+                      >
+                        {isRemedial ? (
+                          <>
+                            <span>🔄</span>
+                            <span>Coba Lagi (Remedial)</span>
+                          </>
+                        ) : isMenguasai ? (
+                          <>
+                            <span>✨</span>
+                            <span>Latihan Lagi</span>
+                          </>
+                        ) : currentLvl > 1 ? (
+                          <>
+                            <span>🚀</span>
+                            <span>Lanjut Level {currentLvl}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🎯</span>
+                            <span>Mulai Belajar</span>
+                          </>
+                        )}
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-3xl border-2 border-dashed border-sky-200 bg-white p-6 text-center space-y-1">
+              <span className="text-3xl block">📖</span>
+              <p className="font-black text-slate-700 text-xs sm:text-sm">
+                Belum ada materi mandiri untuk kelas ini.
+              </p>
+              <p className="text-[11px] text-slate-400 font-bold">
+                Tunggu gurumu menambahkan buku/materi pelajaran ya!
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Section Kuis Sesi Kelas (Kuis Bersama) */}
+        <div className="space-y-3 pt-2">
           <h2 className="text-base sm:text-lg font-black text-slate-900">
-            Materi Tersedia
+            Kuis Sesi Kelas
           </h2>
 
           {kuisBelumSelesai.length > 0 ? (
@@ -294,7 +530,15 @@ function SiswaDashboardContent() {
                     </div>
 
                     <Link
-                      href={`/kuis/${kuis.kode_unik}?nama=${encodeURIComponent(siswa?.nama || namaSiswa)}`}
+                      href={
+                        kuis.materi_id
+                          ? `/siswa/adaptive/${kuis.materi_id}?kode=${encodeURIComponent(
+                              kodeKelas
+                            )}&nama=${encodeURIComponent(siswa?.nama || namaSiswa)}`
+                          : `/kuis/${kuis.kode_unik}?nama=${encodeURIComponent(
+                              siswa?.nama || namaSiswa
+                            )}`
+                      }
                       className={`h-9 px-3 rounded-full ${theme.arrowBg} text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm transition active:scale-95 gap-1`}
                     >
                       <span>{isStarted ? "Lanjut" : "Mulai"}</span>

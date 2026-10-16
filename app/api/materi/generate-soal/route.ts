@@ -2,35 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Soal from "@/models/Soal";
 import Materi from "@/models/Materi";
+import AIConfig from "@/models/AIConfig";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
+import {
+  validasiQuestionBank,
+  filterDuplikatSoal,
+  ValidatedSoalItem,
+} from "@/lib/questionBank";
 
 export const maxDuration = 60; // Batas waktu fungsi serverless 60 detik untuk 3 pemanggilan AI
-
-interface SoalAIItem {
-  pertanyaan: string;
-  pilihan: string[];
-  jawabanBenar: number;
-  level: number;
-  penjelasan?: string;
-}
-
-const LEVEL_CONFIGS = {
-  1: {
-    nama: "Level 1 (Mudah)",
-    panduan:
-      "Tingkat Mudah / Pemahaman Dasar (C1–C2): Mengingat fakta langsung, definisi kata/istilah sederhana, dan informasi eksplisit dari teks buku. Kalimat pertanyaan harus singkat, lugas, dan mudah dipahami anak SD.",
-  },
-  2: {
-    nama: "Level 2 (Sedang)",
-    panduan:
-      "Tingkat Sedang / Penerapan Konsep (C3): Memahami hubungan sebab-akibat sederhana, contoh penerapan konsep dalam kehidupan sehari-hari anak SD berdasarkan teks, atau mengelompokkan informasi.",
-  },
-  3: {
-    nama: "Level 3 (Sulit / HOTS)",
-    panduan:
-      "Tingkat Sulit / Penalaran Kritis & HOTS (C4): Menganalisis situasi, menarik kesimpulan yang tidak tertulis langsung, mengevaluasi pernyataan, atau memecahkan masalah kontekstual berdasarkan konsep materi.",
-  },
-} as const;
 
 // Helper parser cerdas & kebal format untuk mengekstrak array soal dari respon model AI apapun
 function extractSoalListFromAI(rawContent: string): unknown[] {
@@ -129,212 +109,6 @@ function extractSoalListFromAI(rawContent: string): unknown[] {
   return recovered;
 }
 
-// Helper normalisasi butir soal AI ke format SoalAIItem
-function normalizeSoalItem(raw: unknown, level: number): SoalAIItem | null {
-  if (!raw || typeof raw !== "object") return null;
-  const item = raw as Record<string, unknown>;
-
-  // Ambil teks pertanyaan
-  const rawPertanyaan =
-    item.pertanyaan ?? item.question ?? item.soal ?? item.tanya ?? item.teks;
-  if (typeof rawPertanyaan !== "string" || rawPertanyaan.trim().length < 3) {
-    return null;
-  }
-
-  // Ambil pilihan
-  let rawPilihan = item.pilihan ?? item.options ?? item.choices ?? item.opsi;
-  if (!Array.isArray(rawPilihan) && rawPilihan && typeof rawPilihan === "object") {
-    rawPilihan = Object.values(rawPilihan);
-  }
-
-  if (!Array.isArray(rawPilihan) || rawPilihan.length < 2) {
-    return null;
-  }
-
-  const pilihan = rawPilihan.map((p) => String(p).trim()).filter(Boolean);
-  if (pilihan.length < 2) return null;
-
-  // Ambil kunci jawaban
-  const rawKunci =
-    item.jawabanBenar ??
-    item.jawaban_benar ??
-    item.kunci ??
-    item.kunciJawaban ??
-    item.correct_answer ??
-    item.answer;
-
-  let jawabanBenar = 0;
-  if (typeof rawKunci === "number" && rawKunci >= 0 && rawKunci < pilihan.length) {
-    jawabanBenar = rawKunci;
-  } else if (typeof rawKunci === "string") {
-    const upper = rawKunci.trim().toUpperCase();
-    if (upper === "A") jawabanBenar = 0;
-    else if (upper === "B") jawabanBenar = 1;
-    else if (upper === "C") jawabanBenar = 2;
-    else if (upper === "D") jawabanBenar = 3;
-    else {
-      const num = parseInt(upper, 10);
-      if (!isNaN(num) && num >= 0 && num < pilihan.length) {
-        jawabanBenar = num;
-      } else {
-        const found = pilihan.findIndex((p) => p.toLowerCase() === rawKunci.trim().toLowerCase());
-        if (found !== -1) jawabanBenar = found;
-      }
-    }
-  }
-
-  const rawPenjelasan =
-    item.penjelasan ?? item.explanation ?? item.pembahasan ?? item.alasan;
-
-  return {
-    pertanyaan: rawPertanyaan.trim(),
-    pilihan,
-    jawabanBenar,
-    level,
-    penjelasan: typeof rawPenjelasan === "string" ? rawPenjelasan.trim() : undefined,
-  };
-}
-
-// Helper untuk memanggil AI khusus per level dengan mekanisme retry mandiri per level
-async function requestLevelSoal(
-  level: 1 | 2 | 3,
-  konteksMapel: string,
-  konteksKelas: string,
-  konteksHalaman: string,
-  namaMateri: string,
-  teksOCR: string,
-  apiKey: string,
-  modelName: string,
-  maxRetry = 3
-): Promise<SoalAIItem[]> {
-  const { nama, panduan } = LEVEL_CONFIGS[level];
-
-  const isOcrValid =
-    teksOCR &&
-    teksOCR.trim().length >= 10 &&
-    !teksOCR.includes("[Gagal membaca");
-
-  const sumberMateri = isOcrValid
-    ? `Teks Buku Pelajaran (Hasil OCR):
-"""
-${teksOCR}
-"""`
-    : `(Catatan: Teks hasil pindai kurang terbaca, jadi gunakan topik materi "${namaMateri}" untuk mata pelajaran ${konteksMapel} ${konteksKelas} sebagai acuan pembuatan soal).`;
-
-  const prompt = `Kamu adalah guru ${konteksKelas} yang ramah, mendidik, dan ahli dalam penyusunan soal evaluasi SD berjenjang.
-Berdasarkan materi pelajaran dari buku sekolah berikut:
-- Mata Pelajaran: ${konteksMapel}
-- Tingkat Siswa: ${konteksKelas} ${konteksHalaman}
-- Judul Bab/Materi: ${namaMateri}
-
-${sumberMateri}
-
-TUGAS:
-Buatkan 10 butir soal kuis pilihan ganda khusus untuk ${nama}.
-Panduan Karakteristik Soal:
-${panduan}
-
-Ketentuan Khusus:
-1. Buat tepat 10 butir soal.
-2. Setiap soal memiliki tepat 4 pilihan jawaban yang masuk akal bagi anak SD.
-3. Setiap soal memiliki tepat 1 kunci jawaban berupa indeks angka (0, 1, 2, atau 3).
-4. Setiap soal memiliki penjelasan/pembahasan singkat yang mendidik dan mudah dipahami anak SD.
-5. Pertanyaan dan pilihan harus ringkas, lugas, dan padat.
-
-Balas HANYA dengan JSON valid seperti struktur berikut (tanpa pembuka/penutup dan tanpa markdown):
-{
-  "soal": [
-    {
-      "pertanyaan": "Pertanyaan soal...",
-      "pilihan": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],
-      "jawabanBenar": 0,
-      "penjelasan": "Penjelasan ringkas mengapa jawaban ini benar."
-    }
-  ]
-}`;
-
-  // Daftar prioritas model: model pilihan -> model gratis Llama 3.3 70B -> auto free router
-  const candidateModels = [
-    modelName,
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/free",
-  ];
-
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxRetry; attempt++) {
-    const activeModel = candidateModels[Math.min(attempt - 1, candidateModels.length - 1)];
-
-    try {
-      const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: activeModel,
-          messages: [
-            {
-              role: "system",
-              content: "Kamu adalah AI guru penyusun soal evaluasi kuis sekolah dasar. Balas HANYA dengan format JSON murni tanpa markdown.",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 3500,
-        }),
-      });
-
-      if (!aiRes.ok) {
-        const errText = await aiRes.text();
-        console.warn(`[GenerateSoal] Attempt ${attempt} dengan model ${activeModel} gagal (HTTP ${aiRes.status}):`, errText.slice(0, 200));
-
-        if (aiRes.status === 402) {
-          // Lanjut ke percobaan berikutnya yang menggunakan model gratis
-          lastError = new Error("Saldo kredit OpenRouter terbatas (HTTP 402)");
-          await new Promise((r) => setTimeout(r, 1200));
-          continue;
-        }
-
-        throw new Error(`OpenRouter HTTP ${aiRes.status}: ${errText.slice(0, 120)}`);
-      }
-
-      const aiData = await aiRes.json();
-      const rawContent: string = aiData.choices?.[0]?.message?.content ?? "";
-
-      const rawItems = extractSoalListFromAI(rawContent);
-      const validSoal: SoalAIItem[] = [];
-
-      for (const raw of rawItems) {
-        const item = normalizeSoalItem(raw, level);
-        if (item) {
-          validSoal.push(item);
-        }
-      }
-
-      if (validSoal.length < 5) {
-        throw new Error(
-          `Hanya ${validSoal.length} butir soal valid yang dapat diekstrak dari respon AI (minimal 5 butir)`
-        );
-      }
-
-      return validSoal;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[Generate Soal] Percobaan ${attempt} gagal untuk ${nama}:`, lastError.message);
-      if (attempt < maxRetry) {
-        await new Promise((r) => setTimeout(r, 1200));
-      }
-    }
-  }
-
-  throw new Error(`Gagal menghasilkan soal ${nama}: ${lastError?.message}`);
-}
-
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
@@ -348,6 +122,50 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    // 0. Ambil konfigurasi AI aktif dari database
+    const activeAIConfig = await AIConfig.findOne().sort({ updatedAt: -1 });
+    if (!activeAIConfig) {
+      return NextResponse.json(
+        {
+          error:
+            "Konfigurasi AI belum tersedia. Hubungi administrator sistem untuk mengatur AI.",
+        },
+        { status: 503 }
+      );
+    }
+
+    if (!activeAIConfig.isActive) {
+      return NextResponse.json(
+        {
+          error:
+            "Layanan pembuatan soal AI sedang dinonaktifkan oleh administrator.",
+        },
+        { status: 503 }
+      );
+    }
+
+    if (activeAIConfig.provider !== "openrouter") {
+      return NextResponse.json(
+        {
+          error: `Provider AI "${activeAIConfig.provider}" saat ini belum didukung oleh sistem. Hubungi administrator.`,
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "Konfigurasi OPENROUTER_API_KEY belum tersedia di server. Hubungi administrator.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const aiModelName = activeAIConfig.model;
+    const aiReasoningEffort = activeAIConfig.reasoningEffort || "medium";
 
     const { materiId } = await req.json();
 
@@ -384,60 +202,290 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENROUTER_API_KEY belum dikonfigurasi di environment variables" },
-        { status: 500 }
-      );
-    }
-
-    const modelName = process.env.OPENROUTER_MODEL || "google/gemini-3.8-flash";
     const konteksMapel = materi.mataPelajaran || "Tematik / Umum";
     const konteksKelas = materi.kelas || "Sekolah Dasar (SD)";
     const konteksHalaman = materi.halaman ? `(Halaman: ${materi.halaman})` : "";
+    const sumberTeks = !isOcrEmpty
+      ? materi.teksHasilOCR
+      : `Topik materi pelajaran: ${materi.namaMateri} (${konteksMapel} ${konteksKelas}).`;
 
-    // Panggil secara berurutan (sekuensial) agar tidak memicu error in_flight_budget_exhausted di OpenRouter
-    const soalLvl1 = await requestLevelSoal(1, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
+    // Helper untuk memanggil OpenRouter per batch level menggunakan AIConfig dari DB
+    async function requestBatchLevel(level: 1 | 2 | 3): Promise<{
+      success: boolean;
+      data?: any[];
+      error?: string;
+      status?: number;
+    }> {
+      const levelConfig = {
+        1: {
+          label: "LEVEL 1 (MUDAH)",
+          deskripsi:
+            "basic understanding, direct question, one-step reasoning. Menguji pemahaman konsep dasar (cukup 1 langkah berpikir sederhana). Pertanyaan sederhana, to-the-point, berupa fakta langsung, definisi, identifikasi, atau hitungan/penerapan langsung satu langkah.",
+        },
+        2: {
+          label: "LEVEL 2 (SEDANG)",
+          deskripsi:
+            "application, contextual/story problem, cause-effect, 1–2 reasoning steps. Menguji penerapan konsep (application) ke dalam situasi nyata atau soal cerita kontekstual. Membutuhkan 1–2 langkah penalaran. Siswa harus memahami situasi kontekstual terlebih dahulu untuk menentukan konsep yang digunakan.",
+        },
+        3: {
+          label: "LEVEL 3 (SULIT)",
+          deskripsi:
+            "analysis, multi-step reasoning, problem solving, lebih kompleks. Menguji analisis kritis, penalaran mendalam, atau pemecahan masalah bertingkat (multi-langkah berpikir). Membutuhkan penggabungan beberapa informasi, kondisi bersyarat, atau minimal 2-3 langkah penyelesaian.",
+        },
+      }[level];
+
+      const batchPrompt = `Kamu adalah pakar kurikulum dan guru ${konteksKelas} yang profesional, kreatif, dan ramah anak.
+Berdasarkan materi pelajaran dari buku sekolah berikut:
+- Mata Pelajaran: ${konteksMapel}
+- Tingkat Siswa: ${konteksKelas} ${konteksHalaman}
+- Judul Bab/Materi: ${materi.namaMateri}
+
+Teks Buku Pelajaran:
+"""
+${sumberTeks}
+"""
+
+TUGAS UTAMA:
+Buatkan TEPAT 6 BUTIR SOAL PILIHAN GANDA dalam Bahasa Indonesia khusus untuk tingkat kesulitan:
+${levelConfig.label}:
+- ${levelConfig.deskripsi}
+- Semua 6 butir soal WAJIB berada pada level: ${level}
+- Materi dan konsep harus tetap berpegang teguh pada teks buku di atas. Jangan melenceng ke materi di luar topik.
+
+ATURAN WAJIB STRUKTUR TIAP BUTIR SOAL:
+- "pertanyaan": Kalimat tanya yang jelas, variatif polanya, ramah anak, dan relevan dengan materi teks.
+- "pilihan": Array tepat 4 pilihan jawaban yang masuk akal dan jelas bedanya (opsi A, B, C, D).
+- "jawabanBenar": Index jawaban yang benar (angka 0, 1, 2, atau 3). Kunci jawaban antar soal HARUS BERVARIASI (jangan seragam).
+- "penjelasan": Penjelasan mendidik ramah anak yang menerangkan langkah berpikir dan mengapa jawaban tersebut benar.
+- "tips": Tips belajar praktis dan mudah diingat anak untuk konsep soal tersebut.
+- "konsep": Nama konsep spesifik yang diuji dari teks materi (contoh: "perkalian dasar", "perubahan wujud mencair", dsb). JANGAN gunakan konsep "umum".
+- "level": ${level}
+- "difficulty": "normal"
+
+FORMAT OUTPUT:
+Balas HANYA dengan JSON array murni tanpa markdown, tanpa backticks, tanpa kata pengantar atau penutup.
+[
+  {
+    "pertanyaan": "...",
+    "pilihan": ["opsi A", "opsi B", "opsi C", "opsi D"],
+    "jawabanBenar": 0,
+    "penjelasan": "...",
+    "tips": "...",
+    "konsep": "...",
+    "level": ${level},
+    "difficulty": "normal"
+  }
+]
+Total tepat 6 item dengan "level": ${level}.`;
+
+      const requestPayload: any = {
+        model: aiModelName,
+        messages: [{ role: "user", content: batchPrompt }],
+      };
+
+      if (aiReasoningEffort && aiReasoningEffort !== "none") {
+        requestPayload.reasoning = {
+          effort: aiReasoningEffort,
+        };
+      }
+
+      let aiRes: Response;
+      try {
+        aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          },
+          body: JSON.stringify(requestPayload),
+        });
+      } catch (networkErr: any) {
+        console.error(`Network error pada Batch Level ${level}:`, networkErr);
+        return {
+          success: false,
+          error: `Koneksi ke AI terputus saat memproses Batch Level ${level}. Silakan periksa jaringan internet dan coba lagi.`,
+          status: 503,
+        };
+      }
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text();
+        console.error(`OpenRouter error pada Batch Level ${level}:`, errText);
+        let errorPesan = `Gagal menghubungi AI OpenRouter pada Batch Level ${level} (${aiRes.status}). Silakan coba beberapa saat lagi.`;
+        if (aiRes.status === 401) {
+          errorPesan = "Autentikasi OpenRouter tidak valid (401). Periksa kembali konfigurasi OPENROUTER_API_KEY.";
+        } else if (aiRes.status === 402) {
+          errorPesan = `Kredit OpenRouter tidak mencukupi (402) saat memproses Batch Level ${level}.`;
+        } else if (aiRes.status === 404) {
+          errorPesan = "Model AI tidak ditemukan pada endpoint OpenRouter (404).";
+        } else if (aiRes.status === 429) {
+          errorPesan = `Batas kuota request OpenRouter terlampaui (429 - Rate Limit) saat memproses Batch Level ${level}. Mohon tunggu beberapa saat sebelum mencoba lagi.`;
+        }
+
+        return {
+          success: false,
+          error: errorPesan,
+          status: aiRes.status >= 400 && aiRes.status < 500 ? aiRes.status : 500,
+        };
+      }
+
+      let rawContent = "";
+      try {
+        const aiData = await aiRes.json();
+        rawContent = aiData.choices?.[0]?.message?.content ?? "";
+      } catch {
+        return {
+          success: false,
+          error: `Gagal membaca respon AI pada Batch Level ${level}.`,
+          status: 500,
+        };
+      }
+
+      // Gunakan parser cerdas gabungan untuk mengekstrak array soal
+      const extractedItems = extractSoalListFromAI(rawContent);
+
+      if (!Array.isArray(extractedItems) || extractedItems.length < 5) {
+        return {
+          success: false,
+          error: `Batch Level ${level} hanya menghasilkan ${Array.isArray(extractedItems) ? extractedItems.length : 0} butir soal (minimal 5 butir dibutuhkan).`,
+          status: 422,
+        };
+      }
+
+      // Pastikan level terisi dengan angka level batch ini
+      const sanitizedList = extractedItems.map((item: any) => ({
+        ...item,
+        level,
+        difficulty: item.difficulty || "normal",
+        konsep: typeof item.konsep === "string" && item.konsep.trim() ? item.konsep.trim() : "umum",
+      }));
+
+      return {
+        success: true,
+        data: sanitizedList,
+      };
+    }
+
+    // Panggil sekuensial antar batch dengan jeda agar tidak memicu rate limit / in-flight budget exhausted
+    // BATCH REQUEST 1: Level 1 (6 butir)
+    const batch1 = await requestBatchLevel(1);
+    if (!batch1.success || !batch1.data) {
+      return NextResponse.json(
+        { error: batch1.error || "Gagal membuat soal Batch Level 1 (Mudah). Tidak ada soal yang disimpan." },
+        { status: batch1.status || 500 }
+      );
+    }
     await new Promise((r) => setTimeout(r, 800));
 
-    const soalLvl2 = await requestLevelSoal(2, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
+    // BATCH REQUEST 2: Level 2 (6 butir)
+    const batch2 = await requestBatchLevel(2);
+    if (!batch2.success || !batch2.data) {
+      return NextResponse.json(
+        { error: batch2.error || "Gagal membuat soal Batch Level 2 (Sedang). Tidak ada partial soal yang disimpan." },
+        { status: batch2.status || 500 }
+      );
+    }
     await new Promise((r) => setTimeout(r, 800));
 
-    const soalLvl3 = await requestLevelSoal(3, konteksMapel, konteksKelas, konteksHalaman, materi.namaMateri, materi.teksHasilOCR || "", apiKey, modelName);
+    // BATCH REQUEST 3: Level 3 (6 butir)
+    const batch3 = await requestBatchLevel(3);
+    if (!batch3.success || !batch3.data) {
+      return NextResponse.json(
+        { error: batch3.error || "Gagal membuat soal Batch Level 3 (Sulit). Tidak ada partial soal yang disimpan." },
+        { status: batch3.status || 500 }
+      );
+    }
 
-    const semuaSoal = [...soalLvl1, ...soalLvl2, ...soalLvl3];
+    // 1. Gabungkan hasil ketiga batch menjadi satu array (6 + 6 + 6 = 18 butir)
+    const combinedRawSoalList: any[] = [
+      ...batch1.data.slice(0, 6),
+      ...batch2.data.slice(0, 6),
+      ...batch3.data.slice(0, 6),
+    ];
 
-    // Pastikan koneksi DB tetap aktif setelah pemanggilan AI paralel
-    await connectDB();
+    // 2. Jalankan validasiQuestionBank() pada keseluruhan bank soal
+    const validasiRes = validasiQuestionBank(combinedRawSoalList);
+    if (!validasiRes.valid || validasiRes.soalList.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            validasiRes.error ||
+            "Hasil Question Bank belum memenuhi standar validasi (minimal 18 butir: 6 L1, 6 L2, 6 L3). Tidak ada data yang disimpan.",
+        },
+        { status: 422 }
+      );
+    }
 
-    const soalTersimpan = await Soal.insertMany(
-      semuaSoal.map((s) => ({
-        pertanyaan: s.pertanyaan,
-        pilihan: s.pilihan,
-        jawabanBenar: s.jawabanBenar,
-        level: s.level,
-        penjelasan: s.penjelasan,
-        materiId,
-      }))
+    // 3. Pastikan kuota terpenuhi: level1 >= 6, level2 >= 6, level3 >= 6, dan total >= 18
+    if (
+      validasiRes.counts.level1 < 6 ||
+      validasiRes.counts.level2 < 6 ||
+      validasiRes.counts.level3 < 6 ||
+      validasiRes.counts.total < 18
+    ) {
+      return NextResponse.json(
+        {
+          error: `Komposisi soal belum memenuhi kuota minimum 18 butir (Level 1: ${validasiRes.counts.level1}/6, Level 2: ${validasiRes.counts.level2}/6, Level 3: ${validasiRes.counts.level3}/6). Tidak ada soal yang disimpan.`,
+        },
+        { status: 422 }
+      );
+    }
+
+    // 4. Ambil soal yang sudah ada di database untuk mencegah duplikasi
+    const existingSoalDocs = await Soal.find({ materiId }, { pertanyaan: 1 });
+    const { soalUnik, jumlahDuplikat } = filterDuplikatSoal(
+      validasiRes.soalList,
+      existingSoalDocs
     );
+
+    if (soalUnik.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Semua butir soal hasil batch AI sudah ada di Question Bank materi ini. Tidak ada butir soal baru yang ditambahkan.",
+        },
+        { status: 409 }
+      );
+    }
+
+    // 5. Simpan soal baru ke database HANYA setelah semua validasi lolos
+    const soalDocsToInsert = soalUnik.map((s: ValidatedSoalItem) => ({
+      materiId: materi._id,
+      pertanyaan: s.pertanyaan,
+      pilihan: s.pilihan,
+      jawabanBenar: s.jawabanBenar,
+      level: s.level,
+      konsep: s.konsep,
+      difficulty: s.difficulty,
+      penjelasan: s.penjelasan,
+      tips: s.tips,
+      createdAt: new Date(),
+    }));
+
+    const soalTersimpan = await Soal.insertMany(soalDocsToInsert);
+
+    const totalSemua = await Soal.countDocuments({ materiId });
+    const countLvl1 = await Soal.countDocuments({ materiId, level: 1 });
+    const countLvl2 = await Soal.countDocuments({ materiId, level: 2 });
+    const countLvl3 = await Soal.countDocuments({ materiId, level: 3 });
 
     return NextResponse.json({
       success: true,
-      totalSoal: soalTersimpan.length,
-      breakdown: {
-        level1: soalLvl1.length,
-        level2: soalLvl2.length,
-        level3: soalLvl3.length,
+      message: `Berhasil membuat Question Bank! Ditambahkan ${soalTersimpan.length} butir soal baru (${validasiRes.counts.level1} Level 1, ${validasiRes.counts.level2} Level 2, ${validasiRes.counts.level3} Level 3).`,
+      summary: {
+        totalBaru: soalTersimpan.length,
+        totalSemua,
+        level1: countLvl1,
+        level2: countLvl2,
+        level3: countLvl3,
+        duplikatDilewati: jumlahDuplikat,
       },
       soal: soalTersimpan,
     });
   } catch (err) {
-    console.error("Gagal generate bank soal adaptif:", err);
+    console.error("Error generate-soal:", err);
     return NextResponse.json(
-      {
-        error: err instanceof Error ? err.message : "Gagal generate soal dari AI",
-      },
+      { error: err instanceof Error ? err.message : "Terjadi kesalahan pada server saat membuat Question Bank." },
       { status: 500 }
     );
   }

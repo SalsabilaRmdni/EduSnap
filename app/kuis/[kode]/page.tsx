@@ -17,6 +17,8 @@ interface SoalSiswa {
 interface SesiSiswa {
   id: string;
   kode_unik: string;
+  materi_id?: string | null;
+  kode_kelas?: string;
   judul_kuis: string;
   mata_pelajaran: string;
   tingkat_kelas: string;
@@ -132,6 +134,29 @@ function KuisSiswaContent() {
       const res = await fetch(url);
       const data = await res.json();
       if (data.status === "ok") {
+        // Jika sesi terhubung ke materi, alihkan langsung ke alur Adaptive Learning
+        if (data.sesi?.materi_id) {
+          const targetKodeKelas =
+            data.sesi.kode_kelas ||
+            (typeof window !== "undefined"
+              ? localStorage.getItem("edusnap_kode_kelas")
+              : "") ||
+            "";
+          const targetNamaSiswa =
+            namaSiswa ||
+            (typeof window !== "undefined"
+              ? localStorage.getItem("edusnap_siswa_nama")
+              : "") ||
+            "";
+
+          router.replace(
+            `/siswa/adaptive/${data.sesi.materi_id}?kode=${encodeURIComponent(
+              targetKodeKelas
+            )}&nama=${encodeURIComponent(targetNamaSiswa)}`
+          );
+          return;
+        }
+
         setSesi(data.sesi);
         if (data.progres) {
           setProgres(data.progres);
@@ -144,7 +169,7 @@ function KuisSiswaContent() {
     } finally {
       setLoading(false);
     }
-  }, [kode, namaSiswa]);
+  }, [kode, namaSiswa, router]);
 
   useEffect(() => {
     fetchSesi();

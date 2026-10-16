@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import Guru from "@/models/Guru";
-import { createSessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { createSessionToken, SESSION_COOKIE_NAME, normalizeRole } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const origin =
@@ -124,14 +124,17 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Buat sesi token JWT EduSnap yang sama dengan login biasa
+    const userRole = normalizeRole(guru.role);
     const sessionToken = await createSessionToken({
       guruId: String(guru._id),
       nama: guru.nama,
       email: guru.email,
+      role: userRole,
     });
 
-    // 5. Redirect ke dashboard dan pasang cookie
-    const response = NextResponse.redirect(new URL("/dashboard", origin));
+    // 5. Redirect ke halaman sesuai role dan pasang cookie
+    const redirectPath = userRole === "admin" ? "/admin/ai" : "/dashboard";
+    const response = NextResponse.redirect(new URL(redirectPath, origin));
 
     response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,

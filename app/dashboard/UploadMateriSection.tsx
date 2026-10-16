@@ -102,6 +102,7 @@ export default function UploadMateriSection({
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const [ocrStatus, setOcrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [ocrErrorMsg, setOcrErrorMsg] = useState("");
   const [teksHasilOCR, setTeksHasilOCR] = useState("");
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -194,6 +195,7 @@ export default function UploadMateriSection({
   const handleOCR = async () => {
     if (!materiId) return;
     setOcrStatus("loading");
+    setOcrErrorMsg("");
 
     try {
       const res = await fetch("/api/materi/ocr", {
@@ -206,10 +208,16 @@ export default function UploadMateriSection({
         const data = await res.json();
         setTeksHasilOCR(data.teks || "");
         setOcrStatus("done");
+        setOcrErrorMsg("");
       } else {
+        const data = await res.json().catch(() => ({}));
+        setOcrErrorMsg(
+          data.error || "OCR tidak dapat terhubung ke layanan OCR. Silakan coba lagi."
+        );
         setOcrStatus("error");
       }
     } catch {
+      setOcrErrorMsg("OCR tidak dapat terhubung ke layanan OCR. Silakan coba lagi.");
       setOcrStatus("error");
     }
   };
@@ -555,7 +563,7 @@ export default function UploadMateriSection({
 
             {ocrStatus === "error" && (
               <p className="text-xs text-red-600 font-bold">
-                ⚠️ Gagal membaca teks dari foto. Silakan klik ekstrak kembali.
+                ⚠️ {ocrErrorMsg || "OCR tidak dapat terhubung ke layanan OCR. Silakan coba lagi."}
               </p>
             )}
 

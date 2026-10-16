@@ -36,8 +36,19 @@ export async function connectDB() {
   const cleanUri = MONGODB_URI.trim().replace(/\?\?+/g, "?");
 
   if (!cached.promise || mongoose.connection.readyState === 0) {
-    cached.promise = mongoose.connect(cleanUri, {
+    const opts: mongoose.ConnectOptions = {
+      bufferCommands: false,
       serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+    };
+
+    cached.promise = mongoose.connect(cleanUri, opts).then((mongooseInstance) => {
+      cached.conn = mongooseInstance;
+      return mongooseInstance;
+    }).catch((err) => {
+      cached.promise = null;
+      cached.conn = null;
+      throw err;
     });
   }
 

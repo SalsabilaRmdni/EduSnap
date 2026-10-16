@@ -71,6 +71,18 @@ function JoinForm() {
         if (typeof window !== "undefined") {
           localStorage.setItem(`kuis_nama_${cleanKode}`, cleanNama);
         }
+
+        // Jika sesi terhubung ke materi, arahkan langsung ke alur Adaptive Learning
+        if (dataSesi.sesi?.materi_id) {
+          const targetKodeKls = dataSesi.sesi.kode_kelas || "";
+          router.push(
+            `/siswa/adaptive/${dataSesi.sesi.materi_id}?kode=${encodeURIComponent(
+              targetKodeKls
+            )}&nama=${encodeURIComponent(cleanNama)}`
+          );
+          return;
+        }
+
         router.push(`/kuis/${cleanKode}?nama=${encodeURIComponent(cleanNama)}`);
         return;
       }

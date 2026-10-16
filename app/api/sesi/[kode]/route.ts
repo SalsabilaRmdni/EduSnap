@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongodb";
 import Sesi from "@/models/Sesi";
 import Siswa from "@/models/Siswa";
 import ProgresSiswa from "@/models/ProgresSiswa";
+import Kelas from "@/models/Kelas";
 
 export async function GET(
   req: NextRequest,
@@ -39,7 +40,11 @@ export async function GET(
 
     // Jika sesi ini terhubung ke kelas, ambil daftar nama siswa di kelas tersebut
     let daftarSiswaKelas: string[] = [];
+    let kodeKelas = "";
     if (sesi.kelas_id) {
+      const kelasDoc = await Kelas.findById(sesi.kelas_id).select("kode_kelas");
+      if (kelasDoc) kodeKelas = kelasDoc.kode_kelas || "";
+
       const siswaList = await Siswa.find({ kelas_id: sesi.kelas_id })
         .select("nama")
         .sort({ nama: 1 });
@@ -209,6 +214,8 @@ export async function GET(
         mata_pelajaran: sesi.mata_pelajaran,
         tingkat_kelas: sesi.tingkat_kelas,
         kelas_id: sesi.kelas_id,
+        kode_kelas: kodeKelas,
+        materi_id: sesi.materi_id ? String(sesi.materi_id) : null,
         status: sesi.status,
         total_soal: sesi.soal.length,
         soal_per_level: sesi.soal_per_level || 5,

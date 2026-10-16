@@ -25,6 +25,10 @@ interface PesertaItem {
   percobaan_ke?: number;
   lulus?: boolean;
   createdAt: string;
+  status?: string;
+  attemptKe?: number;
+  konsepBelumDikuasai?: string[];
+  isAdaptive?: boolean;
 }
 
 interface RekapSiswaItem {
@@ -119,7 +123,7 @@ export default function DetailSesiPage() {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 transition"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-1.5 text-xs font-bold text-slate-700 transition cursor-pointer"
           >
             🔄 {refreshing ? "Memperbarui..." : "Perbarui Data"}
           </button>
@@ -167,7 +171,7 @@ export default function DetailSesiPage() {
               </span>
               <button
                 onClick={handleCopyLink}
-                className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 px-4 py-2 text-xs font-bold text-white shadow-sm transition"
+                className="mt-3 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 px-4 py-2 text-xs font-bold text-white shadow-sm transition cursor-pointer"
               >
                 {copiedLink ? "✅ Link Tersalin!" : "📋 Salin Link Kuis"}
               </button>
@@ -225,7 +229,7 @@ export default function DetailSesiPage() {
               <button
                 type="button"
                 onClick={() => setActiveTab("rekap")}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                   activeTab === "rekap"
                     ? "bg-indigo-600 text-white shadow-xs"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -236,7 +240,7 @@ export default function DetailSesiPage() {
               <button
                 type="button"
                 onClick={() => setActiveTab("riwayat")}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                   activeTab === "riwayat"
                     ? "bg-indigo-600 text-white shadow-xs"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -333,7 +337,7 @@ export default function DetailSesiPage() {
                                 <button
                                   type="button"
                                   onClick={() => setExpandedSiswa(isExpanded ? null : s.nama_siswa)}
-                                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline"
+                                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
                                 >
                                   {isExpanded ? "Tutup" : "Detail"}
                                 </button>
@@ -409,7 +413,7 @@ export default function DetailSesiPage() {
                     <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[11px]">
                       <th className="py-3 px-3">No.</th>
                       <th className="py-3 px-3">Nama Siswa</th>
-                      <th className="py-3 px-3 text-center">Level</th>
+                      <th className="py-3 px-3 text-center">Status / Level</th>
                       <th className="py-3 px-3 text-center">Percobaan</th>
                       <th className="py-3 px-3 text-center">Benar / Total</th>
                       <th className="py-3 px-3 text-center">Skor</th>
@@ -428,18 +432,31 @@ export default function DetailSesiPage() {
                       });
 
                       return (
-                        <tr key={p._id} className="hover:bg-slate-50/70 transition">
+                        <tr key={p._id || idx} className="hover:bg-slate-50/70 transition">
                           <td className="py-3.5 px-3 text-slate-400 font-bold">{idx + 1}</td>
                           <td className="py-3.5 px-3 font-bold text-slate-900">
                             {p.nama_siswa}
                           </td>
                           <td className="py-3.5 px-3 text-center">
-                            <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-700">
-                              Level {p.level || 1}
-                            </span>
+                            {p.isAdaptive ? (
+                              <div className="flex flex-col gap-1 items-center">
+                                <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                                  Level {p.level || 1}
+                                </span>
+                                {p.status === "menguasai" && (
+                                  <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                                    Menguasai 🌟
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-700">
+                                Level {p.level || 1}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3.5 px-3 text-center text-slate-700 font-bold">
-                            ke-{p.percobaan_ke || 1}
+                            ke-{p.attemptKe || p.percobaan_ke || 1}
                           </td>
                           <td className="py-3.5 px-3 text-center text-slate-700 font-medium">
                             {p.jumlah_benar} / {p.total_soal}

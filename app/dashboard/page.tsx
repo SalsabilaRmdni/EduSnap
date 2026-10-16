@@ -10,6 +10,7 @@ interface GuruSession {
   guruId: string;
   nama: string;
   email: string;
+  role?: string;
 }
 
 function formatNamaGuru(nama: string) {
@@ -75,6 +76,23 @@ export default function DashboardPage() {
   const [deleteCounts, setDeleteCounts] = useState<{ siswa: number; materi: number; sesi: number } | null>(null);
   const [loadingCounts, setLoadingCounts] = useState(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  // State Edit Materi
+  const [showEditMateriModal, setShowEditMateriModal] = useState(false);
+  const [materiTargetEdit, setMateriTargetEdit] = useState<MateriItem | null>(null);
+  const [namaMateriEdit, setNamaMateriEdit] = useState("");
+  const [mataPelajaranEdit, setMataPelajaranEdit] = useState("");
+  const [halamanEdit, setHalamanEdit] = useState("");
+  const [kelasIdEdit, setKelasIdEdit] = useState("");
+  const [loadingEditMateri, setLoadingEditMateri] = useState(false);
+  const [editMateriError, setEditMateriError] = useState<string | null>(null);
+
+  // State Hapus Materi
+  const [showDeleteMateriModal, setShowDeleteMateriModal] = useState(false);
+  const [materiTargetHapus, setMateriTargetHapus] = useState<MateriItem | null>(null);
+  const [loadingDeleteMateri, setLoadingDeleteMateri] = useState(false);
+  const [deleteMateriCounts, setDeleteMateriCounts] = useState<{ soal: number; sesi: number; progressSiswa: number } | null>(null);
+  const [loadingDeleteMateriCounts, setLoadingDeleteMateriCounts] = useState(false);
 
   // Ambil data materi khusus untuk kelas yang sedang dipilih
   const loadMateriKelas = useCallback(async (kelasId: string) => {
@@ -296,6 +314,113 @@ export default function DashboardPage() {
     }
   };
 
+  // Handlers Edit & Hapus Materi
+  const bukaModalEditMateri = (m: MateriItem) => {
+    setMateriTargetEdit(m);
+    setNamaMateriEdit(m.namaMateri || "");
+    setMataPelajaranEdit(m.mataPelajaran || "");
+    setHalamanEdit(m.halaman || "");
+    setKelasIdEdit(m.kelas_id || selectedKelasId || "");
+    setEditMateriError(null);
+    setShowEditMateriModal(true);
+  };
+
+  const simpanEditMateri = async () => {
+    if (!materiTargetEdit || !namaMateriEdit.trim() || !mataPelajaranEdit.trim()) return;
+    const target = materiTargetEdit;
+    setLoadingEditMateri(true);
+    setEditMateriError(null);
+    try {
+      const res = await fetch(`/api/materi/${target._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          namaMateri: namaMateriEdit.trim(),
+          mataPelajaran: mataPelajaranEdit.trim(),
+          halaman: halamanEdit.trim(),
+          kelas_id: kelasIdEdit || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEditMateriError(data.error || "Gagal memperbarui materi");
+        return;
+      }
+      const updated = data.materi;
+      // Jika kelas_id dipindah ke kelas lain dan tidak sama dengan selectedKelasId
+      if (selectedKelasId && updated.kelas_id && String(updated.kelas_id) !== String(selectedKelasId)) {
+        setMateriList((prev) => prev.filter((item) => item._id !== updated._id));
+      } else {
+        setMateriList((prev) =>
+          prev.map((item) => (item._id === updated._id ? { ...item, ...updated } : item))
+        );
+      }
+      setShowEditMateriModal(false);
+      setMateriTargetEdit(null);
+      setSuccessNotice(`Materi "${updated.namaMateri}" berhasil diperbarui.`);
+      setTimeout(() => setSuccessNotice(null), 3500);
+    } catch {
+      setEditMateriError("Gagal terhubung ke server.");
+    } finally {
+      setLoadingEditMateri(false);
+    }
+  };
+
+  const bukaModalHapusMateri = async (m: MateriItem) => {
+    setMateriTargetHapus(m);
+    setShowDeleteMateriModal(true);
+    setLoadingDeleteMateriCounts(true);
+    setDeleteMateriCounts(null);
+    try {
+      const res = await fetch(`/api/materi/${m._id}`);
+      const data = await res.json();
+      if (data.success && data.counts) {
+        setDeleteMateriCounts(data.counts);
+      } else {
+        setDeleteMateriCounts({ soal: 0, sesi: 0, progressSiswa: 0 });
+      }
+    } catch (err) {
+      console.error("Gagal load count materi:", err);
+      setDeleteMateriCounts({ soal: 0, sesi: 0, progressSiswa: 0 });
+    } finally {
+      setLoadingDeleteMateriCounts(false);
+    }
+  };
+
+  const batalHapusMateri = () => {
+    setShowDeleteMateriModal(false);
+    setMateriTargetHapus(null);
+    setDeleteMateriCounts(null);
+  };
+
+  const konfirmasiHapusMateri = async () => {
+    if (!materiTargetHapus) return;
+    const target = materiTargetHapus;
+    setLoadingDeleteMateri(true);
+    try {
+      const res = await fetch(`/api/materi/${target._id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Gagal menghapus materi");
+        setShowDeleteMateriModal(false);
+        setMateriTargetHapus(null);
+        return;
+      }
+      const deletedId = target._id;
+      setMateriList((prev) => prev.filter((m) => m._id !== deletedId));
+      setShowDeleteMateriModal(false);
+      setMateriTargetHapus(null);
+      setSuccessNotice(`Materi "${target.namaMateri}" berhasil dihapus.`);
+      setTimeout(() => setSuccessNotice(null), 3500);
+    } catch {
+      alert("Gagal terhubung ke server saat menghapus materi.");
+    } finally {
+      setLoadingDeleteMateri(false);
+    }
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-sky-50">
@@ -396,6 +521,17 @@ export default function DashboardPage() {
               <span>📊</span>
               <span>Rekap Nilai</span>
             </button>
+
+            {/* Admin Panel (Hanya tampil jika role admin) */}
+            {guru.role === "admin" && (
+              <Link
+                href="/admin/ai"
+                className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition shrink-0"
+              >
+                <span>⚙️</span>
+                <span>Admin AI Config</span>
+              </Link>
+            )}
           </nav>
         </div>
 
@@ -607,9 +743,29 @@ export default function DashboardPage() {
                         className="rounded-3xl border-2 border-sky-100 bg-white p-4 shadow-xs hover:shadow-md transition flex flex-col justify-between space-y-3"
                       >
                         <div className="space-y-1">
-                          <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md inline-block">
-                            {m.mataPelajaran}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md inline-block">
+                              {m.mataPelajaran}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => bukaModalEditMateri(m)}
+                                className="px-2 py-0.5 rounded-md text-[11px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 transition flex items-center gap-1"
+                                title="Edit Materi"
+                              >
+                                <span>✏️</span> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => bukaModalHapusMateri(m)}
+                                className="px-2 py-0.5 rounded-md text-[11px] font-bold text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition flex items-center gap-1"
+                                title="Hapus Materi"
+                              >
+                                <span>🗑️</span> Hapus
+                              </button>
+                            </div>
+                          </div>
                           <h4 className="font-black text-sm text-slate-900 line-clamp-2">
                             {m.namaMateri}
                           </h4>
@@ -859,6 +1015,192 @@ export default function DashboardPage() {
                 className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-3 text-xs font-black text-white shadow-md shadow-red-300/40 transition disabled:opacity-50"
               >
                 {loadingDelete ? "Menghapus..." : "Ya, Hapus Kelas"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Edit Materi (Root Level, Z-Index 9999) ── */}
+      {showEditMateriModal && materiTargetEdit && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-[32px] p-6 space-y-4 shadow-2xl border-2 border-purple-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center text-lg font-bold">
+                  ✏️
+                </div>
+                <h3 className="text-lg font-black text-slate-900">Edit Materi</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditMateriModal(false);
+                  setMateriTargetEdit(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {editMateriError && (
+              <div className="rounded-2xl bg-red-50 p-3 text-xs text-red-600 border border-red-200 font-bold flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{editMateriError}</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-600">Nama / Judul Materi</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={namaMateriEdit}
+                  onChange={(e) => setNamaMateriEdit(e.target.value)}
+                  placeholder="Contoh: Bab 1: Perkalian Bilangan Bulat"
+                  className="w-full rounded-2xl border-2 border-sky-100 p-3 text-sm font-bold focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-600">Mata Pelajaran</label>
+                <input
+                  type="text"
+                  value={mataPelajaranEdit}
+                  onChange={(e) => setMataPelajaranEdit(e.target.value)}
+                  placeholder="Contoh: Matematika"
+                  className="w-full rounded-2xl border-2 border-sky-100 p-3 text-sm font-bold focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-600">Halaman / Keterangan (Opsional)</label>
+                <input
+                  type="text"
+                  value={halamanEdit}
+                  onChange={(e) => setHalamanEdit(e.target.value)}
+                  placeholder="Contoh: Halaman 12-15"
+                  className="w-full rounded-2xl border-2 border-sky-100 p-3 text-sm font-bold focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition"
+                />
+              </div>
+
+              {kelasList.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-600">Kelas</label>
+                  <select
+                    value={kelasIdEdit}
+                    onChange={(e) => setKelasIdEdit(e.target.value)}
+                    className="w-full rounded-2xl border-2 border-sky-100 p-3 text-sm font-bold focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition bg-white"
+                  >
+                    {kelasList.map((k) => (
+                      <option key={k._id} value={k._id}>
+                        {k.nama_kelas} ({k.kode_kelas})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400">
+                Soal, riwayat kuis, dan data adaptive learning pada materi ini akan tetap dipertahankan.
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditMateriModal(false);
+                  setMateriTargetEdit(null);
+                }}
+                disabled={loadingEditMateri}
+                className="flex-1 rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={simpanEditMateri}
+                disabled={!namaMateriEdit.trim() || !mataPelajaranEdit.trim() || loadingEditMateri}
+                className="flex-1 rounded-2xl bg-purple-600 hover:bg-purple-700 py-3 text-xs font-black text-white shadow-md shadow-purple-300/40 transition disabled:opacity-50"
+              >
+                {loadingEditMateri ? "Menyimpan..." : "Simpan Perubahan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Konfirmasi Hapus Materi (Root Level, Z-Index 9999) ── */}
+      {showDeleteMateriModal && materiTargetHapus && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-[32px] p-6 space-y-4 shadow-2xl border-2 border-red-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg font-bold">
+                  🗑️
+                </div>
+                <h3 className="text-lg font-black text-slate-900">Hapus Materi</h3>
+              </div>
+              <button
+                type="button"
+                onClick={batalHapusMateri}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 space-y-2">
+              <p className="text-xs font-bold text-amber-900">
+                Hapus materi ini? Materi, soal, sesi kuis, dan data terkait materi ini akan ikut dihapus. Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <p className="text-xs text-amber-800 font-extrabold underline">
+                {materiTargetHapus.namaMateri} ({materiTargetHapus.mataPelajaran})
+              </p>
+              {loadingDeleteMateriCounts ? (
+                <p className="text-[11px] text-amber-700 animate-pulse font-medium">
+                  Memeriksa data terkait materi ini...
+                </p>
+              ) : (
+                <div className="space-y-1 text-xs text-amber-800">
+                  <p className="font-bold">Data yang akan ikut terhapus:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                    <li><span className="font-bold">{deleteMateriCounts?.soal ?? 0}</span> Soal kuis / Question Bank</li>
+                    <li><span className="font-bold">{deleteMateriCounts?.sesi ?? 0}</span> Sesi kuis & data peserta</li>
+                    <li><span className="font-bold">{deleteMateriCounts?.progressSiswa ?? 0}</span> Progress adaptive siswa</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl bg-red-50/70 border border-red-100 p-3 text-[11px] font-semibold text-red-700 space-y-1">
+              <p className="font-black text-red-800 flex items-center gap-1">
+                <span>🛡️</span> Perlindungan Data Guru & Kelas
+              </p>
+              <p>
+                Data akun guru, data kelas, dan daftar akun siswa tetap aman dan tidak akan terhapus.
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={batalHapusMateri}
+                disabled={loadingDeleteMateri}
+                className="flex-1 rounded-2xl border border-slate-200 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={konfirmasiHapusMateri}
+                disabled={loadingDeleteMateri}
+                className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-3 text-xs font-black text-white shadow-md shadow-red-300/40 transition disabled:opacity-50"
+              >
+                {loadingDeleteMateri ? "Menghapus..." : "Ya, Hapus Materi"}
               </button>
             </div>
           </div>
